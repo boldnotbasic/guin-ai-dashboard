@@ -3,6 +3,7 @@ import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import { Menu, X } from 'lucide-react';
 import LoginPage from './components/LoginPage';
+import ResetPasswordPage from './components/ResetPasswordPage';
 import HomePage from './components/HomePage';
 import SalesPage from './components/SalesPage';
 import SalesOverviewPage from './components/SalesOverviewPage';
@@ -2253,6 +2254,14 @@ function App() {
         return <HomePage setActiveTab={setActiveTab} />;
     }
   };
+
+  // Check if user is on password reset page
+  const hashParams = new URLSearchParams(window.location.hash.substring(1));
+  const isPasswordReset = hashParams.get('type') === 'recovery';
+
+  if (isPasswordReset) {
+    return <ResetPasswordPage />;
+  }
 
   if (!isLoggedIn) {
     return <LoginPage setIsLoggedIn={setIsLoggedIn} />;
