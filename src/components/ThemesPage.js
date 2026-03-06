@@ -1,11 +1,48 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Eye, Download, Star, Plus, X, Edit, Trash2, ShieldCheck, Palette, Upload, Info, Cloud, CloudOff } from 'lucide-react';
+import { Eye, Download, Star, Plus, X, Edit, Trash2, ShieldCheck, Palette, Upload, Info, Cloud, CloudOff, Image as ImageIcon } from 'lucide-react';
 import dataStorage from '../utils/dataStorage';
 import githubSync from '../utils/githubSync';
 import GitHubSyncSetup from './GitHubSyncSetup';
-import { db } from '../utils/supabaseClient';
+import { db, supabase } from '../utils/supabaseClient';
 
 const ThemesPage = () => {
+  const [uploading, setUploading] = useState(false);
+  const [imageFile, setImageFile] = useState(null);
+
+  const uploadFile = async (file, folder) => {
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Math.random().toString(36).substring(2)}_${Date.now()}.${fileExt}`;
+    const filePath = `${folder}/${fileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('themes')
+      .upload(filePath, file);
+
+    if (uploadError) throw uploadError;
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('themes')
+      .getPublicUrl(filePath);
+
+    return publicUrl;
+  };
+
+  const handleImageUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      alert('Selecteer een afbeelding');
+      return;
+    }
+
+    setImageFile(file);
+  };
+
+  const removeImage = () => {
+    setImageFile(null);
+  };
+
   const defaultThemes = [
     {
       id: 1,
@@ -351,13 +388,22 @@ const ThemesPage = () => {
   const addTheme = async () => {
     if (newTheme.name && newTheme.description && newTheme.price) {
       try {
-        const payload = toDbTheme({ ...newTheme, rating: parseFloat(newTheme.rating) });
+        setUploading(true);
+        let imageUrl = newTheme.image;
+
+        if (imageFile) {
+          imageUrl = await uploadFile(imageFile, 'main');
+        }
+
+        const payload = toDbTheme({ ...newTheme, rating: parseFloat(newTheme.rating), image: imageUrl });
         const created = await db.themes.create(payload);
         setThemes([...themes, fromDbTheme(created)]);
         resetForm();
       } catch (e) {
         console.error('Add theme failed:', e);
         alert('Fout bij toevoegen theme');
+      } finally {
+        setUploading(false);
       }
     }
   };
@@ -365,7 +411,14 @@ const ThemesPage = () => {
   const updateTheme = async () => {
     if (newTheme.name && newTheme.description && newTheme.price) {
       try {
-        const updates = toDbTheme({ ...newTheme, rating: parseFloat(newTheme.rating) });
+        setUploading(true);
+        let imageUrl = newTheme.image;
+
+        if (imageFile) {
+          imageUrl = await uploadFile(imageFile, 'main');
+        }
+
+        const updates = toDbTheme({ ...newTheme, rating: parseFloat(newTheme.rating), image: imageUrl });
         const row = await db.themes.update(editingTheme.id, updates);
         const updated = fromDbTheme(row);
         const updatedThemes = themes.map(t => t.id === editingTheme.id ? updated : t);
@@ -374,6 +427,8 @@ const ThemesPage = () => {
       } catch (e) {
         console.error('Update theme failed:', e);
         alert('Fout bij bijwerken theme');
+      } finally {
+        setUploading(false);
       }
     }
   };
@@ -389,7 +444,7 @@ const ThemesPage = () => {
       name: '',
       description: '',
       category: '',
-      rating: 5.0,
+      rating: 0,
       price: '',
       image: '',
       devLink: '',
@@ -400,6 +455,7 @@ const ThemesPage = () => {
       usedOn: [],
       documentation: ''
     });
+    setImageFile(null);
     setShowAddForm(false);
     setEditingTheme(null);
   };
@@ -696,14 +752,36 @@ const ThemesPage = () => {
               />
             </div>
             <div>
-              <label className="block text-white/70 text-sm mb-2">Afbeelding URL</label>
-              <input
-                type="url"
-                value={newTheme.image}
-                onChange={(e) => setNewTheme({...newTheme, image: e.target.value})}
-                className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-400"
-                placeholder="https://example.com/image.jpg"
-              />
+              <label className="block text-white/70 text-sm mb-2">Afbeelding</label>
+              <div className="space-y-4">
+                {imageFile || newTheme.image ? (
+                  <div className="relative">
+                    <img
+                      src={imageFile ? URL.createObjectURL(imageFile) : newTheme.image}
+                      alt="Theme afbeelding"
+                      className="w-full h-64 object-contain bg-white/5 rounded-lg"
+                    />
+                    <button
+                      onClick={removeImage}
+                      className="absolute top-2 right-2 bg-black/60 p-2 rounded-full text-white hover:bg-black/80 transition-colors"
+                      title="Verwijder afbeelding"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <label className="flex flex-col items-center justify-center w-full h-64 border-2 border-dashed border-white/20 rounded-lg cursor-pointer hover:border-white/40 transition-colors">
+                    <Upload className="w-12 h-12 text-white/40 mb-2" />
+                    <span className="text-white/60">Klik om afbeelding te uploaden</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageUpload}
+                      className="hidden"
+                    />
+                  </label>
+                )}
+              </div>
             </div>
             <div>
               <label className="block text-white/70 text-sm mb-2">Preview Link</label>
@@ -775,9 +853,17 @@ const ThemesPage = () => {
           <div className="flex space-x-4">
             <button 
               onClick={editingTheme ? updateTheme : addTheme}
-              className="btn-primary px-6 py-2 rounded-lg text-white font-medium"
+              disabled={uploading}
+              className="btn-primary px-6 py-2 rounded-lg text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
             >
-              {editingTheme ? 'Theme Bijwerken' : 'Theme Toevoegen'}
+              {uploading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <span>{editingTheme ? 'Bijwerken...' : 'Toevoegen...'}</span>
+                </>
+              ) : (
+                <span>{editingTheme ? 'Theme Bijwerken' : 'Theme Toevoegen'}</span>
+              )}
             </button>
             <button 
               onClick={resetForm}
@@ -1035,7 +1121,7 @@ const ThemesPage = () => {
                 <img 
                   src={theme.image} 
                   alt={theme.name}
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-contain bg-white/5"
                   onError={(e) => {
                     e.target.style.display = 'none';
                     // Show placeholder when image fails to load
@@ -1104,7 +1190,7 @@ const ThemesPage = () => {
                             <img 
                               src={developer.avatar} 
                               alt={developer.name}
-                              className="w-full h-full object-cover"
+                              className="w-full h-full object-contain bg-white/5"
                               onError={(e) => {
                                 e.target.style.display = 'none';
                               }}
@@ -1192,7 +1278,7 @@ const ThemesPage = () => {
                       <img 
                         src={developer.avatar} 
                         alt={developer.name}
-                        className="w-full h-full object-cover"
+                        className="w-full h-full object-contain bg-white/5"
                         onError={(e) => {
                           e.target.style.display = 'none';
                         }}

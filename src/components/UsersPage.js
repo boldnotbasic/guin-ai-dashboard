@@ -288,7 +288,7 @@ const UsersPage = () => {
                       <img 
                         src={user.avatar_url} 
                         alt={userName}
-                        className="w-full h-full object-cover"
+                        className="w-full h-full object-contain bg-white/5"
                         onError={(e) => {
                           e.target.style.display = 'none';
                         }}

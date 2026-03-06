@@ -29,7 +29,7 @@ module.exports = {
         'gradient-blue-purple': 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
         'gradient-green-blue': 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)',
         'gradient-orange-pink': 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
-        'gradient-dark': 'linear-gradient(135deg, #0c1445 0%, #1e2a78 25%, #2d3a9f 50%, #1e2a78 75%, #0c1445 100%)',
+        'gradient-dark': 'linear-gradient(135deg, #000000 0%, #1a0a2e 25%, #3d1f47 50%, #6b1f3d 75%, #000000 100%)',
       }
     },
   },

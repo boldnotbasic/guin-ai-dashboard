@@ -2,193 +2,669 @@ import React, { useState, useEffect } from 'react';
 import { db } from '../utils/supabaseClient';
 import { 
   ArrowLeft, 
-  ArrowUp,
-  Calendar, 
-  Users, 
-  Clock, 
-  DollarSign, 
+  Plus,
   Edit, 
   Trash2, 
-  CheckCircle,
-  AlertCircle,
-  Activity,
   ExternalLink,
-  Palette,
-  Baby,
-  Store,
-  Briefcase,
-  Rocket,
-  User as UserIcon,
-  Building,
-  Globe,
-  Star,
-  Heart,
-  Shield,
-  Ticket
+  X,
+  Circle,
+  CheckCircle,
+  GripVertical,
+  Calendar,
+  Instagram,
+  CheckSquare,
+  ChevronLeft,
+  ChevronRight,
+  Copy,
+  Download
 } from 'lucide-react';
+import ProjectEmailFilters from './ProjectEmailFilters';
+import ProjectEmailList from './ProjectEmailList';
 
 const ProjectDetailPage = ({ projectId, setActiveTab, setSelectedProject }) => {
   const [project, setProject] = useState(null);
+  const [tiles, setTiles] = useState([]);
+  const [tasks, setTasks] = useState([]);
+  const [draggedTask, setDraggedTask] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [showEdit, setShowEdit] = useState(false);
-  const [editData, setEditData] = useState(null);
-  const [seoScanRunning, setSeoScanRunning] = useState(false);
-  const [seoScanProgress, setSeoScanProgress] = useState(0);
-  const [seoResult, setSeoResult] = useState(null);
-  const [showSuccessModal, setShowSuccessModal] = useState(false);
-  const [successMessage, setSuccessMessage] = useState('');
-  const [showAddTicket, setShowAddTicket] = useState(false);
-  const [newTicket, setNewTicket] = useState({ label: '', key: '', url: '', type: 'Basic' });
-  const [appsCatalog, setAppsCatalog] = useState([]);
-  const [themesCatalog, setThemesCatalog] = useState([]);
-  const [appToAddId, setAppToAddId] = useState('');
-  const [themeToAddId, setThemeToAddId] = useState('');
-  const [showSeoChecklist, setShowSeoChecklist] = useState(false);
-  const [seoChecklistItems, setSeoChecklistItems] = useState([
-    { id: 1, label: 'Meta title optimization', checked: false },
-    { id: 2, label: 'Meta descriptions', checked: false },
-    { id: 3, label: 'H1 tags', checked: false },
-    { id: 4, label: 'Image alt texts', checked: false },
-    { id: 5, label: 'URL structure', checked: false },
-    { id: 6, label: 'Internal linking', checked: false },
-    { id: 7, label: 'Sitemap submitted', checked: false },
-    { id: 8, label: 'robots.txt configured', checked: false },
-    { id: 9, label: 'Schema markup', checked: false },
-    { id: 10, label: 'Mobile optimization', checked: false },
-    { id: 11, label: 'Page speed optimization', checked: false },
-    { id: 12, label: 'SSL certificate', checked: false }
-  ]);
+  const [showAddTileModal, setShowAddTileModal] = useState(false);
+  const [editingTile, setEditingTile] = useState(null);
+  const [newTile, setNewTile] = useState({
+    title: '',
+    description: '',
+    url: '',
+    image_url: '',
+    is_external: false
+  });
+  const [addingTaskToColumn, setAddingTaskToColumn] = useState(null);
+  const [newTaskTitle, setNewTaskTitle] = useState('');
+  const [newTaskDueDate, setNewTaskDueDate] = useState('');
+  const [newTaskType, setNewTaskType] = useState('task');
+  const [currentAgendaDate, setCurrentAgendaDate] = useState(new Date());
+  const [showAgenda, setShowAgenda] = useState(true);
+  const [showTaskModal, setShowTaskModal] = useState(false);
+  const [editingTask, setEditingTask] = useState(null);
+  const [modalTask, setModalTask] = useState({ title: '', due_date: '', status: 'to_start', task_type: 'task' });
+  const [copyToast, setCopyToast] = useState('');
+  const [projectColors, setProjectColors] = useState([]);
+  const [projectFonts, setProjectFonts] = useState([]);
+  const [showAddColorModal, setShowAddColorModal] = useState(false);
+  const [showAddFontModal, setShowAddFontModal] = useState(false);
+  const [editingColor, setEditingColor] = useState(null);
+  const [editingFont, setEditingFont] = useState(null);
+  const [newColor, setNewColor] = useState({ hex: '#000000', name: '' });
+  const [newFont, setNewFont] = useState({ name: '', font_type: 'heading', font_family: '', font_url: '', example_text: '' });
+
+  const brandingColors = [
+    { hex: '#59BAFF', rgb: '89 186 255', cmyk: '54 14 0 0' },
+    { hex: '#02002D', rgb: '2 0 45', cmyk: '90 85 48 69' },
+    { hex: '#3B4862', rgb: '59 72 98', cmyk: '82 70 40 26' },
+    { hex: '#6E6D89', rgb: '110 109 137', cmyk: '62 56 50 6' },
+    { hex: '#191360', rgb: '25 19 96', cmyk: '100 100 27 28' },
+    { hex: '#D2F3FE', rgb: '210 243 254', cmyk: '16 0 1 0' },
+    { hex: '#6F6F6F', rgb: '111 111 111', cmyk: '57 49 48 15' },
+    { hex: '#FAFAFA', rgb: '239 239 239', cmyk: '5 3 3 0' }
+  ];
+
+  const handleCopyColor = async (hex) => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(hex);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = hex;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      setCopyToast(`${hex} gekopieerd!`);
+      setTimeout(() => setCopyToast(''), 2000);
+    } catch (e) {
+      setCopyToast('Kopiëren mislukt');
+      setTimeout(() => setCopyToast(''), 2000);
+    }
+  };
+
+  const handleDownloadFont = (fontName) => {
+    const link = document.createElement('a');
+    if (fontName === 'Acherus') {
+      link.href = '/Acherus Grotesque.zip';
+      link.download = 'Acherus Grotesque.zip';
+    } else {
+      link.href = `/${fontName}.zip`;
+      link.download = `${fontName}.zip`;
+    }
+    link.rel = 'noopener noreferrer';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+
+  // Helpers to derive RGB and CMYK from HEX
+  const normalizeHex = (hex) => {
+    if (!hex) return '';
+    let h = hex.trim();
+    if (h[0] !== '#') h = `#${h}`;
+    if (h.length === 4) {
+      const r = h[1], g = h[2], b = h[3];
+      h = `#${r}${r}${g}${g}${b}${b}`;
+    }
+    return h.toUpperCase();
+  };
+
+  const hexToRgb = (hex) => {
+    const h = normalizeHex(hex);
+    const match = /^#([0-9A-F]{6})$/i.exec(h);
+    if (!match) return null;
+    const intVal = parseInt(match[1], 16);
+    const r = (intVal >> 16) & 255;
+    const g = (intVal >> 8) & 255;
+    const b = intVal & 255;
+    return { r, g, b };
+  };
+
+  const hexToRgbString = (hex) => {
+    const rgb = hexToRgb(hex);
+    if (!rgb) return '';
+    return `${rgb.r} ${rgb.g} ${rgb.b}`;
+  };
+
+  const rgbToCmykString = (r, g, b) => {
+    const rf = r / 255, gf = g / 255, bf = b / 255;
+    const k = 1 - Math.max(rf, gf, bf);
+    if (k >= 1) return '0 0 0 100';
+    const c = (1 - rf - k) / (1 - k);
+    const m = (1 - gf - k) / (1 - k);
+    const y = (1 - bf - k) / (1 - k);
+    const toPct = (v) => Math.round(v * 100);
+    return `${toPct(c)} ${toPct(m)} ${toPct(y)} ${toPct(k)}`;
+  };
+
+  const hexToCmykString = (hex) => {
+    const rgb = hexToRgb(hex);
+    if (!rgb) return '';
+    return rgbToCmykString(rgb.r, rgb.g, rgb.b);
+  };
+
+  // Color CRUD functions
+  const addColor = async () => {
+    if (!newColor.hex) {
+      alert('Vul een HEX kleur in');
+      return;
+    }
+    try {
+      const colorData = {
+        project_id: parseInt(projectId),
+        hex: newColor.hex,
+        rgb: hexToRgbString(newColor.hex),
+        cmyk: hexToCmykString(newColor.hex),
+        name: newColor.name || null,
+        position: projectColors.length
+      };
+      const created = await db.projectColors.create(colorData);
+      setProjectColors([...projectColors, created]);
+      setNewColor({ hex: '#000000', name: '' });
+      setShowAddColorModal(false);
+    } catch (error) {
+      console.error('Error adding color:', error);
+      alert('Fout bij toevoegen kleur');
+    }
+  };
+
+  const updateColor = async () => {
+    if (!editingColor || !editingColor.hex) {
+      alert('Vul een HEX kleur in');
+      return;
+    }
+    try {
+      const updates = {
+        hex: editingColor.hex,
+        rgb: hexToRgbString(editingColor.hex),
+        cmyk: hexToCmykString(editingColor.hex),
+        name: editingColor.name || null
+      };
+      await db.projectColors.update(editingColor.id, updates);
+      setProjectColors(projectColors.map(c => c.id === editingColor.id ? { ...editingColor, ...updates } : c));
+      setEditingColor(null);
+      setShowAddColorModal(false);
+    } catch (error) {
+      console.error('Error updating color:', error);
+      alert('Fout bij updaten kleur');
+    }
+  };
+
+  const deleteColor = async (id) => {
+    if (!window.confirm('Deze kleur verwijderen?')) return;
+    try {
+      await db.projectColors.delete(id);
+      setProjectColors(projectColors.filter(c => c.id !== id));
+    } catch (error) {
+      console.error('Error deleting color:', error);
+      alert('Fout bij verwijderen kleur');
+    }
+  };
+
+  const startEditColor = (color) => {
+    setEditingColor(color);
+    setShowAddColorModal(true);
+  };
+
+  // Font CRUD functions
+  const addFont = async () => {
+    if (!newFont.name || !newFont.font_family) {
+      alert('Vul minimaal naam en font family in');
+      return;
+    }
+    try {
+      const fontData = {
+        project_id: parseInt(projectId),
+        name: newFont.name,
+        font_type: newFont.font_type,
+        font_family: newFont.font_family,
+        font_url: newFont.font_url || null,
+        example_text: newFont.example_text || null,
+        position: projectFonts.length
+      };
+      const created = await db.projectFonts.create(fontData);
+      setProjectFonts([...projectFonts, created]);
+      setNewFont({ name: '', font_type: 'heading', font_family: '', font_url: '', example_text: '' });
+      setShowAddFontModal(false);
+    } catch (error) {
+      console.error('Error adding font:', error);
+      alert('Fout bij toevoegen font');
+    }
+  };
+
+  const updateFont = async () => {
+    if (!editingFont || !editingFont.name || !editingFont.font_family) {
+      alert('Vul minimaal naam en font family in');
+      return;
+    }
+    try {
+      const updates = {
+        name: editingFont.name,
+        font_type: editingFont.font_type,
+        font_family: editingFont.font_family,
+        font_url: editingFont.font_url || null,
+        example_text: editingFont.example_text || null
+      };
+      await db.projectFonts.update(editingFont.id, updates);
+      setProjectFonts(projectFonts.map(f => f.id === editingFont.id ? { ...editingFont, ...updates } : f));
+      setEditingFont(null);
+      setShowAddFontModal(false);
+    } catch (error) {
+      console.error('Error updating font:', error);
+      alert('Fout bij updaten font');
+    }
+  };
+
+  const deleteFont = async (id) => {
+    if (!window.confirm('Dit font verwijderen?')) return;
+    try {
+      await db.projectFonts.delete(id);
+      setProjectFonts(projectFonts.filter(f => f.id !== id));
+    } catch (error) {
+      console.error('Error deleting font:', error);
+      alert('Fout bij verwijderen font');
+    }
+  };
+
+  const startEditFont = (font) => {
+    setEditingFont(font);
+    setShowAddFontModal(true);
+  };
+
+  const resetColorForm = () => {
+    setNewColor({ hex: '#000000', name: '' });
+    setEditingColor(null);
+    setShowAddColorModal(false);
+  };
+
+  const resetFontForm = () => {
+    setNewFont({ name: '', font_type: 'heading', font_family: '', font_url: '', example_text: '' });
+    setEditingFont(null);
+    setShowAddFontModal(false);
+  };
 
   useEffect(() => {
-    const boot = async () => {
-      let projects = [];
+    const loadData = async () => {
       try {
-        projects = JSON.parse(localStorage.getItem('shopify-dashboard-projects') || '[]');
-      } catch (_) {}
-      let foundProject = projects.find(p => p.id === parseInt(projectId));
-      if (!foundProject) {
-        try {
-          const rows = await db.projects.getAll();
-          const row = rows.find(r => Number(r.id) === parseInt(projectId));
-          if (row) {
-            const tags = row.tags || [];
-            const team = tags.filter(t => String(t).startsWith('team:')).map(t => t.slice(5));
-            const tmsTag = tags.find(t => String(t).startsWith('tms:'));
-            const tmsCode = tmsTag ? String(tmsTag).slice(4) : '';
-            foundProject = {
-              id: row.id,
-              name: row.name,
-              client: row.client,
-              status: row.status,
-              progress: row.progress,
-              deadline: row.deadline || '',
-              team,
-              logo: row.logo || '',
-              icon: row.icon || '',
-              iconColor: row.color || '',
-              tmsCode,
-              description: row.description || '',
-              budget: row.budget || '',
-              shopDomain: row.url || '',
-              seoScore: row.seo_score || 0,
-              created_at: row.created_at,
-              updated_at: row.updated_at
-            };
-            try {
-              const merged = [...projects.filter(p => p.id !== foundProject.id), foundProject];
-              localStorage.setItem('shopify-dashboard-projects', JSON.stringify(merged));
-              window.dispatchEvent(new Event('localStorageUpdate'));
-            } catch (_) {}
-          }
-        } catch (_) {}
+        // Load project from Supabase
+        const rows = await db.projects.getAll();
+        const row = rows.find(r => Number(r.id) === parseInt(projectId));
+        
+        if (row) {
+          const tags = row.tags || [];
+          const team = tags.filter(t => String(t).startsWith('team:')).map(t => t.slice(5));
+          const foundProject = {
+            id: row.id,
+            name: row.name,
+            client: row.client,
+            status: row.status,
+            description: row.description || '',
+            logo: row.logo || '',
+            url: row.url || ''
+          };
+          setProject(foundProject);
+          
+          // Load tiles for this project
+          const tilesData = await db.projectTiles.getByProject(projectId);
+          setTiles(tilesData);
+          
+          // Load tasks for this project
+          const tasksData = await db.projectTasks.getByProject(projectId);
+          setTasks(tasksData || []);
+
+          // Load colors for this project
+          const colorsData = await db.projectColors.getByProject(projectId);
+          setProjectColors(colorsData);
+
+          // Load fonts for this project
+          const fontsData = await db.projectFonts.getByProject(projectId);
+          setProjectFonts(fontsData);
+        }
+      } catch (error) {
+        console.error('Error loading project:', error);
+      } finally {
+        setLoading(false);
       }
-      if (foundProject && Array.isArray(foundProject.offerTickets)) {
-        const missing = foundProject.offerTickets.some(t => !t.key);
-        if (missing) {
-          const prefixMap = { 'Royal Talens': 'MSYRT', 'Dreambaby': 'MSYDB' };
-          const prefix = prefixMap[foundProject.client] || 'MSY';
-          const seqKey = `ticket-seq-${foundProject.id || 'global'}`;
-          let current = parseInt(localStorage.getItem(seqKey) || '280');
-          const nextTickets = foundProject.offerTickets.map(t => {
-            if (t.key) return t;
-            current = isNaN(current) ? 1 : current + 1;
-            const key = `${prefix}-${current}`;
-            return { ...t, key };
-          });
-          const updatedProjects = (projects || []).map(p => p.id === foundProject.id ? { ...p, offerTickets: nextTickets } : p);
-          try {
-            localStorage.setItem('shopify-dashboard-projects', JSON.stringify(updatedProjects));
-            localStorage.setItem(seqKey, String(current));
-            window.dispatchEvent(new Event('localStorageUpdate'));
-          } catch (_) {}
-          const refreshed = updatedProjects.find(p => p.id === foundProject.id) || foundProject;
-          setProject(refreshed);
-          setLoading(false);
-          return;
+    };
+    loadData();
+    
+    // Listen for task updates from chatbot
+    const handleTaskUpdate = async (event) => {
+      if (event.detail.projectId === parseInt(projectId)) {
+        // Reload tasks for this project
+        try {
+          const tasksData = await db.projectTasks.getByProject(projectId);
+          setTasks(tasksData || []);
+        } catch (error) {
+          console.error('Error reloading tasks:', error);
         }
       }
-      setProject(foundProject || null);
-      setLoading(false);
-      try {
-        const apps = JSON.parse(localStorage.getItem('shopify-dashboard-apps') || '[]');
-        const themes = JSON.parse(localStorage.getItem('shopify-dashboard-themes') || '[]');
-        setAppsCatalog(Array.isArray(apps) ? apps : []);
-        setThemesCatalog(Array.isArray(themes) ? themes : []);
-      } catch (_) {}
     };
-    boot();
+    
+    window.addEventListener('taskUpdated', handleTaskUpdate);
+    
+    return () => {
+      window.removeEventListener('taskUpdated', handleTaskUpdate);
+    };
   }, [projectId]);
 
-  useEffect(() => {
-    const onLs = () => {
-      try {
-        const apps = JSON.parse(localStorage.getItem('shopify-dashboard-apps') || '[]');
-        const themes = JSON.parse(localStorage.getItem('shopify-dashboard-themes') || '[]');
-        setAppsCatalog(Array.isArray(apps) ? apps : []);
-        setThemesCatalog(Array.isArray(themes) ? themes : []);
-        const projects = JSON.parse(localStorage.getItem('shopify-dashboard-projects') || '[]');
-        const me = projects.find(p => p.id === (project?.id));
-        if (me) {
-          setProject(me);
-        }
-      } catch(_) {}
-    };
-    window.addEventListener('localStorageUpdate', onLs);
-    return () => window.removeEventListener('localStorageUpdate', onLs);
-  }, [project?.id]);
+  const addTile = async () => {
+    if (!newTile.title || !newTile.url) return;
+    try {
+      const tile = {
+        project_id: parseInt(projectId),
+        title: newTile.title,
+        description: newTile.description,
+        url: newTile.url,
+        image_url: newTile.image_url,
+        is_external: newTile.is_external,
+        order_index: tiles.length
+      };
+      const created = await db.projectTiles.create(tile);
+      setTiles([...tiles, created]);
+      resetTileForm();
+    } catch (error) {
+      console.error('Error adding tile:', error);
+      alert('Fout bij toevoegen tile');
+    }
+  };
 
-  const openEdit = () => {
-    setEditData({
-      ...project,
-      team: Array.isArray(project.team) ? project.team.join(', ') : (project.team || '')
+  const updateTile = async () => {
+    if (!editingTile || !editingTile.title || !editingTile.url) return;
+    try {
+      const updates = {
+        title: editingTile.title,
+        description: editingTile.description,
+        url: editingTile.url,
+        image_url: editingTile.image_url,
+        is_external: editingTile.is_external
+      };
+      await db.projectTiles.update(editingTile.id, updates);
+      setTiles(tiles.map(t => t.id === editingTile.id ? { ...editingTile, ...updates } : t));
+      resetTileForm();
+    } catch (error) {
+      console.error('Error updating tile:', error);
+      alert('Fout bij updaten tile');
+    }
+  };
+
+  const deleteTile = async (id) => {
+    if (!window.confirm('Deze tile verwijderen?')) return;
+    try {
+      await db.projectTiles.delete(id);
+      setTiles(tiles.filter(t => t.id !== id));
+    } catch (error) {
+      console.error('Error deleting tile:', error);
+      alert('Fout bij verwijderen tile');
+    }
+  };
+
+  const resetTileForm = () => {
+    setShowAddTileModal(false);
+    setEditingTile(null);
+    setNewTile({
+      title: '',
+      description: '',
+      url: '',
+      image_url: '',
+      is_external: false
     });
-    setShowEdit(true);
   };
 
-  const closeEdit = () => {
-    setShowEdit(false);
-    setEditData(null);
+  const startEditTile = (tile) => {
+    setEditingTile(tile);
+    setShowAddTileModal(true);
   };
 
-  const saveEdit = () => {
-    // Persist to localStorage
-    const projects = JSON.parse(localStorage.getItem('shopify-dashboard-projects') || '[]');
-    const updated = projects.map(p => p.id === project.id ? {
-      ...p,
-      ...editData,
-      team: typeof editData.team === 'string' ? editData.team.split(',').map(t=>t.trim()).filter(Boolean) : editData.team
-    } : p);
-    localStorage.setItem('shopify-dashboard-projects', JSON.stringify(updated));
-    window.dispatchEvent(new Event('localStorageUpdate'));
-    // Update local state
-    const newProj = updated.find(p=>p.id===project.id);
-    setProject(newProj);
-    closeEdit();
+  // Kanban functions
+  const handleDragStart = (e, task) => {
+    setDraggedTask(task);
+    e.dataTransfer.effectAllowed = 'move';
   };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleDrop = async (e, targetStatus) => {
+    e.preventDefault();
+    if (!draggedTask) return;
+
+    try {
+      await db.projectTasks.update(draggedTask.id, { status: targetStatus });
+      setTasks(tasks.map(t => 
+        t.id === draggedTask.id ? { ...t, status: targetStatus } : t
+      ));
+      setDraggedTask(null);
+    } catch (error) {
+      console.error('Error updating task:', error);
+      alert('Fout bij verplaatsen taak');
+    }
+  };
+
+  const deleteTask = async (taskId) => {
+    if (!window.confirm('Deze taak verwijderen?')) return;
+    try {
+      await db.projectTasks.delete(taskId);
+      setTasks(tasks.filter(t => t.id !== taskId));
+    } catch (error) {
+      console.error('Error deleting task:', error);
+      alert('Fout bij verwijderen taak');
+    }
+  };
+  
+  const addTask = async (status) => {
+    if (!newTaskTitle.trim()) return;
+    
+    try {
+      const maxPosition = tasks.length > 0 ? Math.max(...tasks.map(t => t.position || 0)) : 0;
+      const newTask = {
+        title: newTaskTitle.trim(),
+        status: status,
+        position: maxPosition + 1,
+        due_date: newTaskDueDate || null,
+        task_type: newTaskType || 'task'
+      };
+      
+      // Only add project_id if we have a projectId (not "No Client")
+      if (projectId && projectId !== 'no-client') {
+        newTask.project_id = parseInt(projectId);
+      }
+      
+      const createdTask = await db.projectTasks.create(newTask);
+      setTasks([...tasks, createdTask]);
+      setNewTaskTitle('');
+      setNewTaskDueDate('');
+      setNewTaskType('task');
+      setAddingTaskToColumn(null);
+    } catch (error) {
+      console.error('Error adding task:', error);
+      alert('Fout bij toevoegen taak');
+    }
+  };
+
+  const kanbanColumns = [
+    { id: 'to_start', label: 'To Start', icon: Circle, color: 'from-gray-500 to-gray-600' },
+    { id: 'in_progress', label: 'In Progress', icon: Circle, color: 'from-blue-500 to-cyan-500' },
+    { id: 'done', label: 'Done', icon: CheckCircle, color: 'from-green-500 to-emerald-500' }
+  ];
 
   const handleBack = () => {
     setSelectedProject(null);
     setActiveTab('projecten');
+  };
+
+  const formatLocalDate = (date) => {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
+
+  const getTasksForDate = (date) => {
+    if (!date) return [];
+    const dateStr = formatLocalDate(date);
+    return tasks.filter(task => task.due_date === dateStr);
+  };
+
+  const getDaysInMonth = () => {
+    const year = currentAgendaDate.getFullYear();
+    const month = currentAgendaDate.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const daysInMonth = lastDay.getDate();
+    const startingDayOfWeek = (firstDay.getDay() + 6) % 7;
+
+    const days = [];
+    for (let i = 0; i < startingDayOfWeek; i++) {
+      days.push(null);
+    }
+    for (let i = 1; i <= daysInMonth; i++) {
+      days.push(new Date(year, month, i));
+    }
+    return days;
+  };
+
+  const renderProjectAgenda = () => {
+    const dayNames = ['Ma', 'Di', 'Wo', 'Do', 'Vr', 'Za', 'Zo'];
+    const days = getDaysInMonth();
+
+    return (
+      <div>
+        <div className="grid grid-cols-7 gap-2 mb-4">
+          {dayNames.map(day => (
+            <div key={day} className="text-center text-white/60 font-medium text-sm py-2">
+              {day}
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-7 gap-2">
+          {days.map((date, index) => {
+            const dayTasks = date ? getTasksForDate(date) : [];
+            const isToday = date && date.toDateString() === new Date().toDateString();
+            
+            return (
+              <div
+                key={index}
+                className={`min-h-24 p-2 rounded-lg border-2 ${
+                  date ? 'bg-white/5 border-white/10'
+                    : 'border-transparent'
+                } ${isToday ? 'ring-2 ring-blue-400' : ''}`}
+                onClick={() => {
+                  if (!date) return;
+                  setEditingTask(null);
+                  setModalTask({ title: '', due_date: formatLocalDate(date), status: 'to_start', task_type: 'task' });
+                  setShowTaskModal(true);
+                }}
+              >
+                {date && (
+                  <>
+                    <div className={`text-sm font-medium mb-2 ${isToday ? 'text-blue-400' : 'text-white/80'}`}>
+                      {date.getDate()}
+                    </div>
+                    <div className="space-y-1">
+                      {dayTasks.slice(0, 2).map(task => {
+                        const TaskIcon = task.task_type === 'social_post' ? Instagram : CheckSquare;
+                        return (
+                          <div
+                            key={task.id}
+                            className="text-xs rounded px-2 py-1.5 truncate flex items-center space-x-1 bg-white/5 hover:bg-white/10 transition-colors"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingTask(task);
+                              setModalTask({
+                                title: task.title || '',
+                                due_date: task.due_date || '',
+                                status: task.status || 'to_start',
+                                task_type: task.task_type || 'task'
+                              });
+                              setShowTaskModal(true);
+                            }}
+                          >
+                            <TaskIcon className="w-3 h-3 text-white/60 flex-shrink-0" />
+                            <span className="text-white flex-1 truncate">{task.title}</span>
+                            {task.status === 'done' && (
+                              <CheckCircle className="w-3 h-3 text-green-400 flex-shrink-0" />
+                            )}
+                          </div>
+                        );
+                      })}
+                      {dayTasks.length > 2 && (
+                        <div className="text-xs text-white/60">
+                          +{dayTasks.length - 2} meer
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+    );
+  };
+
+  const saveModalTask = async () => {
+    if (!modalTask.title.trim()) return;
+    try {
+      if (editingTask) {
+        const updates = {
+          title: modalTask.title.trim(),
+          due_date: modalTask.due_date || null,
+          status: modalTask.status,
+          task_type: modalTask.task_type || 'task'
+        };
+        await db.projectTasks.update(editingTask.id, updates);
+        setTasks(tasks.map(t => (t.id === editingTask.id ? { ...t, ...updates } : t)));
+      } else {
+        const maxPosition = tasks.length > 0 ? Math.max(...tasks.map(t => t.position || 0)) : 0;
+        const taskData = {
+          title: modalTask.title.trim(),
+          status: modalTask.status || 'to_start',
+          position: maxPosition + 1,
+          due_date: modalTask.due_date || null,
+          task_type: modalTask.task_type || 'task'
+        };
+        
+        // Only add project_id if we have a projectId (not "No Client")
+        if (projectId && projectId !== 'no-client') {
+          taskData.project_id = parseInt(projectId);
+        }
+        
+        const created = await db.projectTasks.create(taskData);
+        setTasks([...tasks, created]);
+      }
+      setShowTaskModal(false);
+      setEditingTask(null);
+      setModalTask({ title: '', due_date: '', status: 'to_start', task_type: 'task' });
+    } catch (e) {
+      console.error('Error saving task from modal:', e);
+      alert('Fout bij opslaan taak');
+    }
+  };
+
+  const deleteModalTask = async () => {
+    if (!editingTask) return;
+    if (!window.confirm('Deze taak verwijderen?')) return;
+    try {
+      await db.projectTasks.delete(editingTask.id);
+      setTasks(tasks.filter(t => t.id !== editingTask.id));
+      setShowTaskModal(false);
+      setEditingTask(null);
+    } catch (e) {
+      console.error('Error deleting task from modal:', e);
+      alert('Fout bij verwijderen taak');
+    }
   };
 
   if (loading) {
@@ -217,283 +693,6 @@ const ProjectDetailPage = ({ projectId, setActiveTab, setSelectedProject }) => {
     );
   }
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'Completed': return 'bg-green-500';
-      case 'In Progress': return 'bg-blue-500';
-      case 'Planning': return 'bg-yellow-500';
-      case 'On Hold': return 'bg-red-500';
-      default: return 'bg-gray-500';
-    }
-  };
-
-  const getStatusIcon = (status) => {
-    switch (status) {
-      case 'Completed': return CheckCircle;
-      case 'In Progress': return Activity;
-      case 'Planning': return Clock;
-      case 'On Hold': return AlertCircle;
-      default: return Clock;
-    }
-  };
-
-  const StatusIcon = getStatusIcon(project.status);
-
-  const getJiraBaseUrl = () => {
-    try {
-      return localStorage.getItem('jira-base-url') || 'https://jira.example.com';
-    } catch (_) {
-      return 'https://jira.example.com';
-    }
-  };
-
-  // SEO Score Circle Component (same style as tiles)
-  const SeoScoreCircle = ({ score }) => {
-    const radius = 24;
-    const circumference = 2 * Math.PI * radius;
-    const dashoffset = circumference - (Math.max(0, Math.min(100, score)) / 100) * circumference;
-    const getColor = (s) => (s >= 80 ? '#10B981' : s >= 60 ? '#F59E0B' : '#EF4444');
-    return (
-      <div className="relative w-16 h-16">
-        <svg className="w-16 h-16 transform -rotate-90" viewBox="0 0 60 60">
-          <circle cx="30" cy="30" r={radius} stroke="rgba(255,255,255,0.2)" strokeWidth="4" fill="transparent" />
-          <circle cx="30" cy="30" r={radius} stroke={getColor(score)} strokeWidth="4" fill="transparent" strokeDasharray={circumference} strokeDashoffset={dashoffset} strokeLinecap="round" className="transition-all duration-700 ease-out" />
-        </svg>
-        <div className="absolute inset-0 flex items-center justify-center">
-          <span className="text-sm font-bold text-white">{Math.round(score)}</span>
-        </div>
-      </div>
-    );
-  };
-
-  const runSeoScan = async () => {
-    if (!project?.shopDomain) {
-      alert('Geen Shopify omgeving ingesteld voor dit project.');
-      return;
-    }
-    if (seoScanRunning) return;
-    setSeoScanRunning(true);
-    setSeoScanProgress(0);
-    setSeoResult(null);
-
-    // Progress animation
-    let pct = 0;
-    const timer = setInterval(() => {
-      pct = Math.min(95, pct + Math.random() * 12);
-      setSeoScanProgress(pct);
-    }, 300);
-
-    const endpoint = (() => { try { return localStorage.getItem('seo-scan-endpoint') || ''; } catch { return ''; } })();
-    const clean = String(project.shopDomain).replace(/^https?:\/\//, '');
-    const targetUrl = `https://${clean}/`;
-
-    let finalScore = project.seoScore || 70;
-    let topics = [];
-    let reachable = false;
-
-    if (endpoint) {
-      try {
-        const controller = new AbortController();
-        const to = setTimeout(() => controller.abort(), 12000);
-        const resp = await fetch(endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: targetUrl }),
-          signal: controller.signal
-        });
-        clearTimeout(to);
-        if (!resp.ok) throw new Error(`Endpoint ${resp.status}`);
-        const data = await resp.json();
-        // data: { h1Count, hasMetaDescription, totalImages, imagesWithoutAlt }
-        const h1Ok = Number(data.h1Count) === 1;
-        const metaOk = !!data.hasMetaDescription;
-        const altOk = Number(data.imagesWithoutAlt) === 0;
-
-        topics = [
-          { key: 'H1', score: h1Ok ? 100 : 0 },
-          { key: 'Meta Description', score: metaOk ? 100 : 0 },
-          { key: 'Image Alts', score: altOk ? 100 : Math.max(0, 100 - (Number(data.imagesWithoutAlt) || 0) * 10) },
-        ];
-        const adjustments = (h1Ok ? 10 : -15) + (metaOk ? 10 : -10) + (altOk ? 10 : -10);
-        finalScore = Math.max(0, Math.min(100, Math.round((project.seoScore || 70) + adjustments)));
-        reachable = true;
-      } catch (e) {
-        // Fall back to basic reachability if endpoint fails
-        try {
-          await Promise.race([
-            fetch(`${targetUrl}?t=${Date.now()}`, { mode: 'no-cors' }),
-            new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 8000))
-          ]);
-          reachable = true;
-        } catch (_) {
-          reachable = false;
-        }
-        const base = project.seoScore || 70;
-        finalScore = Math.max(20, Math.min(100, Math.round(base + (reachable ? 5 : -10))))
-        topics = [
-          { key: 'Reachability', score: reachable ? 100 : 0 },
-          { key: 'H1', score: 50 },
-          { key: 'Meta Description', score: 50 },
-          { key: 'Image Alts', score: 50 },
-        ];
-      }
-    } else {
-      // No endpoint configured, keep old lightweight ping behavior
-      try {
-        await Promise.race([
-          fetch(`${targetUrl}?t=${Date.now()}`, { mode: 'no-cors' }),
-          new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 8000))
-        ]);
-        reachable = true;
-      } catch (_) {
-        reachable = false;
-      }
-      const base = project.seoScore || 70;
-      finalScore = Math.max(20, Math.min(100, Math.round(base + (reachable ? 5 : -10))))
-      topics = [
-        { key: 'Reachability', score: reachable ? 100 : 0 },
-        { key: 'H1', score: 50 },
-        { key: 'Meta Description', score: 50 },
-        { key: 'Image Alts', score: 50 },
-      ];
-    }
-
-    clearInterval(timer);
-    setSeoScanProgress(100);
-    const checkedAt = new Date().toISOString();
-    setSeoResult({ reachable, finalScore, topics, checkedAt });
-
-    // Persist new SEO score to localStorage so tiles update
-    try {
-      const projects = JSON.parse(localStorage.getItem('shopify-dashboard-projects') || '[]');
-      const updated = projects.map(p => p.id === project.id ? { ...p, seoScore: finalScore } : p);
-      localStorage.setItem('shopify-dashboard-projects', JSON.stringify(updated));
-      window.dispatchEvent(new Event('localStorageUpdate'));
-      // Update local state
-      const newProj = updated.find(p=>p.id===project.id);
-      setProject(newProj);
-    } catch (_) {}
-    setSeoScanRunning(false);
-  };
-
-  // Milestones removed per user request
-
-  const handleMakeOffer = () => {
-    try {
-      const items = project.upsellInvoice || [];
-      if (!items.length) {
-        setSuccessMessage('Geen upsell items geselecteerd voor offerte.');
-        setShowSuccessModal(true);
-        return;
-      }
-      const projects = JSON.parse(localStorage.getItem('shopify-dashboard-projects') || '[]');
-      const updated = projects.map(p => {
-        if (p.id !== project.id) return p;
-        const salesSubItems = Array.isArray(p.salesSubItems) ? p.salesSubItems.slice() : [];
-        salesSubItems.push({
-          id: Date.now(),
-          type: 'upsell',
-          title: 'Upsell invoice',
-          items,
-          createdAt: new Date().toISOString()
-        });
-        return { ...p, salesSubItems };
-      });
-      localStorage.setItem('shopify-dashboard-projects', JSON.stringify(updated));
-      window.dispatchEvent(new Event('localStorageUpdate'));
-      const me = updated.find(p => p.id === project.id);
-      setProject(me);
-      setSuccessMessage(`Upsell invoice aangemaakt voor ${me.name}. (${items.length} items)`);
-      setShowSuccessModal(true);
-    } catch (e) {}
-  };
-
-  const addAppToProject = (id) => {
-    if (!project || !id) return;
-    try {
-      const app = (appsCatalog || []).find(a => String(a.id) === String(id));
-      if (!app) return;
-      const projects = JSON.parse(localStorage.getItem('shopify-dashboard-projects') || '[]');
-      const updated = projects.map(p => {
-        if (p.id !== project.id) return p;
-        const current = Array.isArray(p.apps) ? p.apps : [];
-        if (current.some(a => String(a.id) === String(app.id))) return p;
-        return { ...p, apps: [...current, { id: app.id, name: app.name, appLink: app.appLink || '', category: app.category || '' }] };
-      });
-      localStorage.setItem('shopify-dashboard-projects', JSON.stringify(updated));
-      window.dispatchEvent(new Event('localStorageUpdate'));
-      const me = updated.find(p => p.id === project.id);
-      setProject(me);
-    } catch(_) {}
-  };
-
-  const removeAppFromProject = (id) => {
-    if (!project) return;
-    try {
-      const projects = JSON.parse(localStorage.getItem('shopify-dashboard-projects') || '[]');
-      const updated = projects.map(p => p.id === project.id ? { ...p, apps: (p.apps || []).filter(a => String(a.id) !== String(id)) } : p);
-      localStorage.setItem('shopify-dashboard-projects', JSON.stringify(updated));
-      window.dispatchEvent(new Event('localStorageUpdate'));
-      const me = updated.find(p => p.id === project.id);
-      setProject(me);
-    } catch(_) {}
-  };
-
-  const addThemeToProject = (id) => {
-    if (!project || !id) return;
-    try {
-      const theme = (themesCatalog || []).find(t => String(t.id) === String(id));
-      if (!theme) return;
-      const projects = JSON.parse(localStorage.getItem('shopify-dashboard-projects') || '[]');
-      const updated = projects.map(p => {
-        if (p.id !== project.id) return p;
-        const current = Array.isArray(p.themes) ? p.themes : [];
-        if (current.some(t => String(t.id) === String(theme.id))) return p;
-        return { ...p, themes: [...current, { id: theme.id, name: theme.name, previewLink: theme.previewLink || '', category: theme.category || '' }] };
-      });
-      localStorage.setItem('shopify-dashboard-projects', JSON.stringify(updated));
-      window.dispatchEvent(new Event('localStorageUpdate'));
-      const me = updated.find(p => p.id === project.id);
-      setProject(me);
-    } catch(_) {}
-  };
-
-  const removeThemeFromProject = (id) => {
-    if (!project) return;
-    try {
-      const projects = JSON.parse(localStorage.getItem('shopify-dashboard-projects') || '[]');
-      const updated = projects.map(p => p.id === project.id ? { ...p, themes: (p.themes || []).filter(t => String(t.id) !== String(id)) } : p);
-      localStorage.setItem('shopify-dashboard-projects', JSON.stringify(updated));
-      window.dispatchEvent(new Event('localStorageUpdate'));
-      const me = updated.find(p => p.id === project.id);
-      setProject(me);
-    } catch(_) {}
-  };
-
-  const addUpsellToInvoice = (item) => {
-    try {
-      if ((project.upsellInvoice || []).some((x) => x.title === item.title)) return;
-      const projects = JSON.parse(localStorage.getItem('shopify-dashboard-projects') || '[]');
-      const updated = projects.map(p => p.id === project.id ? { ...p, upsellInvoice: [ ...(p.upsellInvoice || []), item ] } : p);
-      localStorage.setItem('shopify-dashboard-projects', JSON.stringify(updated));
-      window.dispatchEvent(new Event('localStorageUpdate'));
-      const me = updated.find(p => p.id === project.id);
-      setProject(me);
-    } catch(e) {}
-  };
-
-  const removeUpsellFromInvoice = (index) => {
-    try {
-      const projects = JSON.parse(localStorage.getItem('shopify-dashboard-projects') || '[]');
-      const updated = projects.map(p => p.id === project.id ? { ...p, upsellInvoice: (p.upsellInvoice || []).filter((_, i) => i !== index) } : p);
-      localStorage.setItem('shopify-dashboard-projects', JSON.stringify(updated));
-      window.dispatchEvent(new Event('localStorageUpdate'));
-      const me = updated.find(p => p.id === project.id);
-      setProject(me);
-    } catch(e) {}
-  };
-
-  const handleSendInvoice = () => {};
 
   return (
     <div className="space-y-6">
@@ -507,612 +706,842 @@ const ProjectDetailPage = ({ projectId, setActiveTab, setSelectedProject }) => {
           Terug naar Projecten
         </button>
         
-        <div className="flex space-x-2">
-          <button onClick={openEdit} className="text-white/60 hover:text-white transition-colors">
-            <Edit className="w-5 h-5" />
-          </button>
-          <button className="text-red-400 hover:text-red-300 transition-colors">
-            <Trash2 className="w-5 h-5" />
-          </button>
-        </div>
+        <button
+          onClick={() => {
+            setEditingTile(null);
+            setShowAddTileModal(true);
+          }}
+          className="btn-primary px-6 py-3 rounded-lg text-white font-medium flex items-center space-x-2"
+        >
+          <Plus className="w-5 h-5" />
+          <span>Tile Toevoegen</span>
+        </button>
       </div>
 
-      {/* Project Header */}
-      <div className="gradient-card rounded-xl p-8">
-        <div className="flex items-start justify-between mb-6">
-          <div className="flex items-center">
-            <div className="w-16 h-16 rounded-xl overflow-hidden mr-6 bg-gradient-blue-purple flex items-center justify-center">
-              {project.logo ? (
-                <img 
-                  src={project.logo} 
-                  alt={project.name}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <span className="text-white font-bold text-xl">
-                  {project.name.substring(0, 2).toUpperCase()}
-                </span>
-              )}
-            </div>
-            <div>
-              <h1 className="text-3xl font-bold text-white mb-2">{project.name}</h1>
-              {project.shopDomain ? (
-                (() => {
-                  const cleanDomain = String(project.shopDomain).replace(/^https?:\/\//, '');
-                  const href = `https://${cleanDomain}/admin`;
-                  return (
-                    <a
-                      href={href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-white/70 text-lg hover:text-white underline decoration-dotted"
-                      title={href}
-                    >
-                      Store admin
-                    </a>
-                  );
-                })()
-              ) : (
-                <p className="text-white/70 text-lg">{project.client}</p>
-              )}
-              {project.tmsCode && (
-                <span className="inline-block bg-white/10 px-3 py-1 rounded-full text-white/80 text-sm mt-2">
-                  {project.tmsCode}
-                </span>
-              )}
-            </div>
-          </div>
-          
-          <div className="text-right">
-            <div className={`inline-flex items-center px-4 py-2 rounded-full text-white ${getStatusColor(project.status)}`}>
-              <StatusIcon className="w-4 h-4 mr-2" />
-              {project.status}
-            </div>
-          </div>
-        </div>
-
-        <p className="text-white/80 text-lg mb-6">{project.description}</p>
-
-        {/* Progress Bar */}
-        <div className="mb-6">
-          <div className="flex justify-between text-sm text-white/70 mb-2">
-            <span>Voortgang</span>
-            <span>{project.progress}%</span>
-          </div>
-          <div className="w-full bg-white/20 rounded-full h-3">
-            <div 
-              className="bg-gradient-blue-purple h-3 rounded-full transition-all"
-              style={{ width: `${project.progress}%` }}
-            ></div>
-          </div>
-        </div>
-      </div>
-
-      {/* Project Details Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="gradient-card rounded-xl p-6">
-          <div className="flex items-center">
-            <Calendar className="w-8 h-8 text-blue-400 mr-4" />
-            <div>
-              <p className="text-white/70 text-sm">Deadline</p>
-              <p className="text-white text-lg font-semibold">{project.deadline}</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="gradient-card rounded-xl p-6">
-          <div className="flex items-center">
-            <Users className="w-8 h-8 text-green-400 mr-4" />
-            <div>
-              <p className="text-white/70 text-sm">Team</p>
-              <p className="text-white text-lg font-semibold">
-                {Array.isArray(project.team) ? project.team.length : project.team.split(',').length} leden
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="gradient-card rounded-xl p-6">
-          <div className="flex items-center">
-            <DollarSign className="w-8 h-8 text-yellow-400 mr-4" />
-            <div>
-              <p className="text-white/70 text-sm">Budget</p>
-              <p className="text-white text-lg font-semibold">{project.budget || 'Niet ingesteld'}</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="gradient-card rounded-xl p-6">
-          <div className="flex items-center">
-            <Activity className="w-8 h-8 text-purple-400 mr-4" />
-            <div>
-              <p className="text-white/70 text-sm">Status</p>
-              <p className="text-white text-lg font-semibold">{project.status}</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Project Content Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* SEO Widget */}
-        <div className="gradient-card rounded-xl p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-white text-xl font-semibold flex items-center">
-              <Activity className="w-5 h-5 mr-2" /> SEO Overzicht
-            </h3>
-            <button
-              onClick={runSeoScan}
-              disabled={seoScanRunning}
-              className={`px-4 py-2 rounded-lg text-white text-sm font-medium ${seoScanRunning ? 'bg-white/20 cursor-not-allowed' : 'btn-primary'}`}
-            >
-              {seoScanRunning ? 'Bezig met scan…' : 'Doe SEO scan'}
-            </button>
-          </div>
-
-          <div className="flex items-center space-x-6 mb-6">
-            <SeoScoreCircle score={seoResult?.finalScore ?? project.seoScore ?? 70} />
-            <div className="flex-1">
-              <p className="text-white/70 text-sm mb-1">Totale score</p>
-              {seoScanRunning ? (
-                <div className="w-full bg-white/20 rounded-full h-2 overflow-hidden">
-                  <div className="bg-gradient-blue-purple h-2 rounded-full transition-all" style={{ width: `${seoScanProgress}%` }} />
-                </div>
-              ) : (
-                <p className="text-white text-lg font-semibold">{seoResult?.finalScore ?? project.seoScore ?? 70}</p>
-              )}
-              <p className="text-white/50 text-xs mt-1">
-                {seoScanRunning ? 'SEO scan wordt uitgevoerd op je Shopify omgeving…' : seoResult?.checkedAt ? `Laatste scan: ${new Date(seoResult.checkedAt).toLocaleString()}` : 'Nog geen scan uitgevoerd'}
-              </p>
-            </div>
-          </div>
-
-          {/* SEO Checklist Button */}
-          <button
-            onClick={() => setShowSeoChecklist(true)}
-            className="w-full btn-primary px-4 py-2 rounded-lg text-white font-medium"
-          >
-            SEO Checklist
-          </button>
-        </div>
-
-        {/* Team Members */}
-        <div className="gradient-card rounded-xl p-6">
-          <h3 className="text-white text-xl font-semibold mb-4 flex items-center">
-            <Users className="w-5 h-5 mr-2" />
-            Team Leden
-          </h3>
-          <div className="space-y-3">
-            {(Array.isArray(project.team) ? project.team : project.team.split(',')).map((member, index) => (
-              <div key={index} className="flex items-center p-3 bg-white/5 rounded-lg">
-                <div className="w-10 h-10 bg-gradient-blue-purple rounded-full flex items-center justify-center mr-3">
-                  <span className="text-white font-semibold text-sm">
-                    {member.trim().substring(0, 2).toUpperCase()}
-                  </span>
-                </div>
-                <div>
-                  <p className="text-white font-medium">{member.trim()}</p>
-                  <p className="text-white/60 text-sm">Developer</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Jira tickets in offerte (read-only) */}
-        <div className="gradient-card rounded-xl p-6">
-          <div className="flex items-center mb-4">
-            <h3 className="text-white text-xl font-semibold flex items-center">
-              <Ticket className="w-5 h-5 mr-2" /> Jira tickets
-            </h3>
-          </div>
-
-          {(!project.offerTickets || project.offerTickets.length === 0) ? (
-            <div className="text-center py-8 text-white/60 text-sm">Nog geen tickets toegevoegd aan de offerte.</div>
-          ) : (
-            <div className="space-y-2">
-              {project.offerTickets.map((t, idx) => (
-                <div key={`${t.key || t.label}-${idx}`} className="flex items-center justify-between bg-white/5 rounded-lg px-3 py-2">
-                  <div className="flex items-center space-x-2">
-                    <span className="inline-flex items-center rounded bg-blue-500/30 text-white text-xs font-bold h-6 px-2">
-                      {(t.key && t.key.toUpperCase()) || (t.label || '').slice(0,3).toUpperCase()}
-                    </span>
-                    <span className="text-white text-sm font-medium">{t.label || '—'}</span>
-                    <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${((t.type||'Basic')==='Extra') ? 'bg-purple-500/30 text-purple-200' : 'bg-green-500/30 text-green-200'}`}>
-                      {(t.type || 'Basic')}
-                    </span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    {((t && t.url) || (t && t.key)) && (
-                      <button
-                        onClick={() => {
-                          const base = getJiraBaseUrl();
-                          const target = t.url || `${base.replace(/\/$/, '')}/browse/${encodeURIComponent((t.key || '').toUpperCase())}`;
-                          window.open(target, '_blank');
-                        }}
-                        className="text-white/70 hover:text-white"
-                        title="Open ticket"
-                      >
-                        <ExternalLink className="w-4 h-4" />
-                      </button>
-                    )}
-                    <button
-                      onClick={() => {
-                        try {
-                          const projects = JSON.parse(localStorage.getItem('shopify-dashboard-projects') || '[]');
-                          const updated = projects.map(p => p.id === project.id ? { ...p, offerTickets: (p.offerTickets || []).filter((_, i) => i !== idx) } : p);
-                          localStorage.setItem('shopify-dashboard-projects', JSON.stringify(updated));
-                          window.dispatchEvent(new Event('localStorageUpdate'));
-                          const me = updated.find(p => p.id === project.id);
-                          setProject(me);
-                        } catch(e) {}
-                      }}
-                      className="text-white/60 hover:text-white"
-                      title="Verwijderen"
-                    >
-                      ×
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Upsell topics (left column, follows milestones) */}
-
-        {/* Upsell topics (left column, follows milestones) */}
-        <div className="gradient-card rounded-xl p-6">
-          <div className="flex items-center mb-4">
-            <h3 className="text-white text-xl font-semibold flex items-center">
-              <ArrowUp className="w-5 h-5 mr-2" /> Upsell topics
-            </h3>
-          </div>
-          {(Array.isArray(project.upsellTopics) && project.upsellTopics.length > 0) ? (
-            <div className="space-y-2">
-              {project.upsellTopics.map((it, i) => (
-                <div key={`${it.title}-${i}`} className="flex items-center justify-between rounded-lg px-3 py-2 bg-white/5">
-                  <div className="flex items-center space-x-3">
-                    <span className="inline-flex items-center rounded bg-purple-500/30 text-purple-200 text-xs font-bold h-6 px-2">
-                      TOPIC
-                    </span>
-                    <div>
-                      <div className="text-white text-sm font-medium">{it.title}</div>
-                      <div className="text-white/60 text-xs">{it.description || it.desc || ''}</div>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => addUpsellToInvoice({ title: it.title, desc: (it.description || it.desc || '') })}
-                    disabled={(project.upsellInvoice || []).some(x => x.title === it.title)}
-                    className={`text-xs px-3 py-1 rounded text-white ${((project.upsellInvoice || []).some(x => x.title === it.title)) ? 'bg-white/10 opacity-60 cursor-not-allowed' : 'bg-white/10 hover:bg-white/20'}`}
-                    title={(project.upsellInvoice || []).some(x => x.title === it.title) ? 'Reeds toegevoegd' : 'Add to invoice'}
-                  >
-                    {((project.upsellInvoice || []).some(x => x.title === it.title)) ? 'Toegevoegd' : 'Add to invoice'}
-                  </button>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-8 text-white/60 text-sm">Nog geen upsell topics voor dit project.</div>
-          )}
-        </div>
-
-        {/* Upsell invoice (right column, follows Jira tickets) */}
-        <div className="gradient-card rounded-xl p-6">
-          <div className="flex items-center mb-4 justify-between">
-            <h3 className="text-white text-xl font-semibold flex items-center">
-              <ArrowUp className="w-5 h-5 mr-2" /> Upsell invoice
-            </h3>
-          </div>
-          {(!project.upsellInvoice || project.upsellInvoice.length === 0) ? (
-            <div className="text-center py-8 text-white/60 text-sm">Nog geen upsells toegevoegd.</div>
-          ) : (
-            <div className="space-y-2">
-              {(project.upsellInvoice || []).map((it, idx) => (
-                <div key={`${it.title}-${idx}`} className="flex items-center justify-between bg-white/5 rounded-lg px-3 py-2">
-                  <div className="flex items-center space-x-3">
-                    <span className="inline-flex items-center rounded bg-purple-500/30 text-white text-xs font-bold h-6 px-2">UP</span>
-                    <div>
-                      <div className="text-white text-sm font-medium">{it.title}</div>
-                      <div className="text-white/60 text-xs">{it.desc}</div>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => removeUpsellFromInvoice(idx)}
-                    className="text-white/60 hover:text-white"
-                    title="Verwijderen"
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          <div className="mt-4 flex items-center gap-3">
-            <button onClick={handleSendInvoice} className="btn-primary px-4 py-2 rounded-lg text-white font-medium">Stuur invoice</button>
-            <button onClick={handleMakeOffer} className="btn-secondary px-4 py-2 rounded-lg text-white font-medium">Maak offerte</button>
-          </div>
-        </div>
-      </div>
-
-      {/* Project Apps & Themes */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Project Apps */}
-        <div className="gradient-card rounded-xl p-6">
-          <h3 className="text-white text-xl font-semibold mb-4">Project Apps</h3>
-          <div className="flex items-center gap-2 mb-4">
-            <select
-              value={appToAddId}
-              onChange={(e)=>setAppToAddId(e.target.value)}
-              className="flex-1 bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-400"
-            >
-              <option value="" className="bg-gray-800">Selecteer app...</option>
-              {(appsCatalog||[]).map(a => (
-                <option key={a.id} value={a.id} className="bg-gray-800">{a.name}</option>
-              ))}
-            </select>
-            <button
-              onClick={()=>addAppToProject(appToAddId)}
-              disabled={!appToAddId}
-              className={`btn-primary px-4 py-2 rounded-lg text-white font-medium ${!appToAddId ? 'opacity-60 cursor-not-allowed' : ''}`}
-            >
-              Toevoegen
-            </button>
-          </div>
-          {(project?.apps && project.apps.length > 0) ? (
-            <div className="space-y-2">
-              {project.apps.map(a => (
-                <div key={a.id} className="flex items-center justify-between bg-white/5 rounded-lg px-3 py-2">
-                  <div className="text-white text-sm font-medium">{a.name}</div>
-                  <div className="flex items-center gap-2">
-                    {a.appLink && (
-                      <button onClick={()=>window.open(a.appLink, '_blank')} className="text-white/70 hover:text-white text-xs">open</button>
-                    )}
-                    <button onClick={()=>removeAppFromProject(a.id)} className="text-white/70 hover:text-white text-xs">remove</button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-white/60 text-sm">Nog geen apps gekoppeld aan dit project.</p>
-          )}
-        </div>
-
-        {/* Project Themes */}
-        <div className="gradient-card rounded-xl p-6">
-          <h3 className="text-white text-xl font-semibold mb-4">Project Themes</h3>
-          <div className="flex items-center gap-2 mb-4">
-            <select
-              value={themeToAddId}
-              onChange={(e)=>setThemeToAddId(e.target.value)}
-              className="flex-1 bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-400"
-            >
-              <option value="" className="bg-gray-800">Selecteer theme...</option>
-              {(themesCatalog||[]).map(t => (
-                <option key={t.id} value={t.id} className="bg-gray-800">{t.name}</option>
-              ))}
-            </select>
-            <button
-              onClick={()=>addThemeToProject(themeToAddId)}
-              disabled={!themeToAddId}
-              className={`btn-primary px-4 py-2 rounded-lg text-white font-medium ${!themeToAddId ? 'opacity-60 cursor-not-allowed' : ''}`}
-            >
-              Toevoegen
-            </button>
-          </div>
-          {(project?.themes && project.themes.length > 0) ? (
-            <div className="space-y-2">
-              {project.themes.map(t => (
-                <div key={t.id} className="flex items-center justify-between bg-white/5 rounded-lg px-3 py-2">
-                  <div className="text-white text-sm font-medium">{t.name}</div>
-                  <div className="flex items-center gap-2">
-                    {t.previewLink && (
-                      <button onClick={()=>window.open(t.previewLink, '_blank')} className="text-white/70 hover:text-white text-xs">preview</button>
-                    )}
-                    <button onClick={()=>removeThemeFromProject(t.id)} className="text-white/70 hover:text-white text-xs">remove</button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-white/60 text-sm">Nog geen themes gekoppeld aan dit project.</p>
-          )}
-        </div>
-      </div>
-
-      {/* SEO Checklist Modal */}
-      {showSeoChecklist && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="gradient-card rounded-xl p-6 w-full max-w-2xl mx-4 max-h-[80vh] overflow-y-auto">
+      {/* Add/Edit Task Modal for Agenda */}
+      {showTaskModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#121325] border border-white/10 rounded-xl w-full max-w-lg p-6">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-white text-xl font-semibold">SEO Checklist</h3>
-              <button onClick={() => setShowSeoChecklist(false)} className="text-white/70 hover:text-white">
-                <span className="text-lg">✕</span>
-              </button>
-            </div>
-            <div className="space-y-3">
-              {seoChecklistItems.map((item) => (
-                <div key={item.id} className="flex items-center p-3 bg-white/5 rounded-lg hover:bg-white/10 transition-colors">
-                  <input
-                    type="checkbox"
-                    checked={item.checked}
-                    onChange={(e) => {
-                      setSeoChecklistItems(prev => prev.map(i => 
-                        i.id === item.id ? { ...i, checked: e.target.checked } : i
-                      ));
-                    }}
-                    className="w-5 h-5 rounded border-2 border-white/30 bg-white/10 checked:bg-blue-500 checked:border-blue-500 cursor-pointer"
-                  />
-                  <label className="text-white ml-3 cursor-pointer flex-1" onClick={() => {
-                    setSeoChecklistItems(prev => prev.map(i => 
-                      i.id === item.id ? { ...i, checked: !i.checked } : i
-                    ));
-                  }}>
-                    {item.label}
-                  </label>
-                </div>
-              ))}
-            </div>
-            <div className="flex justify-end gap-2 mt-6">
-              <button onClick={() => setShowSeoChecklist(false)} className="btn-primary px-6 py-2 rounded-lg text-white font-medium">Sluiten</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Success Modal */}
-      {showSuccessModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="gradient-card rounded-xl p-6 w-full max-w-md mx-4">
-            <h3 className="text-white text-lg font-semibold mb-3">Succes</h3>
-            <p className="text-white/80 whitespace-pre-line mb-4">{successMessage}</p>
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setShowSuccessModal(false)} className="btn-primary px-4 py-2 rounded-lg text-white font-medium">Ok</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Edit Modal */}
-      {showEdit && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="gradient-card rounded-xl p-6 w-full max-w-2xl mx-4">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-white text-xl font-semibold">Project Bewerken</h3>
-              <button onClick={closeEdit} className="text-white/70 hover:text-white">
-                <Trash2 className="hidden" />
-                {/* using X from lucide would require new import; reuse simple text */}
-                <span className="text-lg">✕</span>
+              <h3 className="text-white text-lg font-semibold">
+                {editingTask ? 'Taak bewerken' : 'Nieuwe taak'}
+              </h3>
+              <button onClick={() => { setShowTaskModal(false); setEditingTask(null); }} className="text-white/70 hover:text-white">
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div className="space-y-4">
               <div>
-                <label className="block text-white/70 text-sm mb-2">Project Naam</label>
+                <label className="block text-white/70 text-sm mb-2">Titel</label>
                 <input
                   type="text"
-                  value={editData?.name || ''}
-                  onChange={(e)=>setEditData({...editData, name:e.target.value})}
-                  className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-400"
+                  value={modalTask.title}
+                  onChange={(e) => setModalTask({ ...modalTask, title: e.target.value })}
+                  className="w-full bg-white/10 border border-white/20 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-400"
+                  placeholder="Taak titel..."
                 />
-              </div>
-              <div>
-                <label className="block text-white/70 text-sm mb-2">Client</label>
-                <input
-                  type="text"
-                  value={editData?.client || ''}
-                  onChange={(e)=>setEditData({...editData, client:e.target.value})}
-                  className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-400"
-                />
-              </div>
-              <div>
-                <label className="block text-white/70 text-sm mb-2">Shopify omgeving</label>
-                <input
-                  type="text"
-                  value={editData?.shopDomain || ''}
-                  onChange={(e)=>setEditData({...editData, shopDomain:e.target.value})}
-                  onBlur={(e)=>{
-                    const v = (e.target.value || '').trim();
-                    if (!v) return;
-                    const normalized = v.endsWith('.myshopify.com') ? v : `${v.replace(/\.$/, '')}.myshopify.com`;
-                    setEditData({...editData, shopDomain: normalized.toLowerCase()});
-                  }}
-                  className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-400"
-                  placeholder="bijv. royal-talens-b2b.myshopify.com"
-                />
-              </div>
-              <div>
-                <label className="block text-white/70 text-sm mb-2">Status</label>
-                <select
-                  value={editData?.status || 'Planning'}
-                  onChange={(e)=>setEditData({...editData, status:e.target.value})}
-                  className="w-full input-plain rounded-lg px-4 py-2 focus:outline-none focus:border-blue-400"
-                >
-                  <option value="Planning" className="bg-gray-800">Planning</option>
-                  <option value="In Progress" className="bg-gray-800">In Progress</option>
-                  <option value="Completed" className="bg-gray-800">Completed</option>
-                  <option value="On Hold" className="bg-gray-800">On Hold</option>
-                </select>
               </div>
               <div>
                 <label className="block text-white/70 text-sm mb-2">Deadline</label>
                 <input
                   type="date"
-                  value={editData?.deadline || ''}
-                  onChange={(e)=>setEditData({...editData, deadline:e.target.value})}
-                  className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-400"
+                  value={modalTask.due_date || ''}
+                  onChange={(e) => setModalTask({ ...modalTask, due_date: e.target.value })}
+                  className="w-full bg-white/10 border border-white/20 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-400"
                 />
               </div>
               <div>
-                <label className="block text-white/70 text-sm mb-2">Go-Live Datum</label>
-                <input
-                  type="date"
-                  value={editData?.goLiveDate || ''}
-                  onChange={(e)=>setEditData({...editData, goLiveDate:e.target.value})}
-                  className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-400"
-                />
+                <label className="block text-white/70 text-sm mb-2">Status</label>
+                <select
+                  value={modalTask.status}
+                  onChange={(e) => setModalTask({ ...modalTask, status: e.target.value })}
+                  className="w-full bg-white/10 border border-white/20 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-400"
+                >
+                  <option value="to_start">To Start</option>
+                  <option value="in_progress">In Progress</option>
+                  <option value="done">Done</option>
+                </select>
               </div>
               <div>
-                <label className="block text-white/70 text-sm mb-2">Logo URL</label>
-                <input
-                  type="url"
-                  value={editData?.logo || ''}
-                  onChange={(e)=>setEditData({...editData, logo:e.target.value})}
-                  className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-400"
-                />
-              </div>
-              <div>
-                <label className="block text-white/70 text-sm mb-2">Team (komma-gescheiden)</label>
-                <input
-                  type="text"
-                  value={editData?.team || ''}
-                  onChange={(e)=>setEditData({...editData, team:e.target.value})}
-                  className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-400"
-                />
-              </div>
-              <div className="md:col-span-2">
-                <label className="block text-white/70 text-sm mb-2">Beschrijving</label>
-                <textarea
-                  value={editData?.description || ''}
-                  onChange={(e)=>setEditData({...editData, description:e.target.value})}
-                  className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-400 h-24"
-                />
-              </div>
-              {/* Icon selector */}
-              <div className="md:col-span-2">
-                <label className="block text-white/70 text-sm mb-2">Icoon</label>
-                <div className="grid grid-cols-6 gap-2">
-                  {[
-                    {key:'Palette', Comp:Palette},
-                    {key:'Baby', Comp:Baby},
-                    {key:'Store', Comp:Store},
-                    {key:'Briefcase', Comp:Briefcase},
-                    {key:'Rocket', Comp:Rocket},
-                    {key:'User', Comp:UserIcon},
-                    {key:'Building', Comp:Building},
-                    {key:'Star', Comp:Star},
-                    {key:'Heart', Comp:Heart},
-                    {key:'Globe', Comp:Globe},
-                    {key:'Shield', Comp:Shield},
-                    {key:'ArrowUp', Comp:ArrowUp},
-                  ].map(({key, Comp}) => (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => setEditData({...editData, icon: key})}
-                      className={`flex items-center justify-center h-10 rounded-lg border ${editData?.icon === key ? 'border-blue-400 bg-white/10' : 'border-white/20 hover:border-white/40'}`}
-                      title={key}
-                    >
-                      <Comp className="w-5 h-5 text-white" />
-                    </button>
-                  ))}
+                <label className="block text-white/70 text-sm mb-2">Type</label>
+                <div className="flex space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => setModalTask({ ...modalTask, task_type: 'task' })}
+                    className={`flex-1 flex items-center justify-center space-x-2 px-3 py-2 rounded text-sm transition-colors ${
+                      modalTask.task_type === 'task' ? 'bg-blue-500 text-white' : 'bg-white/10 text-white/60 hover:bg-white/20'
+                    }`}
+                  >
+                    <CheckSquare className="w-4 h-4" />
+                    <span>Taak</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setModalTask({ ...modalTask, task_type: 'social_post' })}
+                    className={`flex-1 flex items-center justify-center space-x-2 px-3 py-2 rounded text-sm transition-colors ${
+                      modalTask.task_type === 'social_post' ? 'bg-pink-500 text-white' : 'bg-white/10 text-white/60 hover:bg-white/20'
+                    }`}
+                  >
+                    <Instagram className="w-4 h-4" />
+                    <span>Social Post</span>
+                  </button>
                 </div>
               </div>
             </div>
 
-            <div className="flex space-x-3">
-              <button onClick={saveEdit} className="btn-primary px-6 py-2 rounded-lg text-white font-medium">Opslaan</button>
-              <button onClick={closeEdit} className="glass-effect px-6 py-2 rounded-lg text-white font-medium">Annuleren</button>
+            <div className="flex space-x-2 mt-6">
+              {editingTask && (
+                <button onClick={deleteModalTask} className="px-4 py-2 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30">
+                  <Trash2 className="w-4 h-4 inline mr-1" /> Verwijderen
+                </button>
+              )}
+              <div className="flex-1" />
+              <button onClick={() => { setShowTaskModal(false); setEditingTask(null); }} className="px-4 py-2 rounded bg-white/10 text-white hover:bg-white/20">Annuleren</button>
+              <button onClick={saveModalTask} className="px-4 py-2 rounded bg-blue-500 text-white hover:bg-blue-600">Opslaan</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Project Header */}
+      <div className="gradient-card rounded-xl p-8">
+        <div className="flex items-center mb-4">
+          {project.logo ? (
+            <img 
+              src={project.logo} 
+              alt={project.name}
+              className="w-20 h-20 rounded-xl object-contain mr-6 bg-white p-1"
+            />
+          ) : (
+            <div className="w-20 h-20 rounded-xl bg-gradient-blue-purple flex items-center justify-center mr-6">
+              <span className="text-white font-bold text-2xl">
+                {project.name.substring(0, 2).toUpperCase()}
+              </span>
+            </div>
+          )}
+          <div>
+            <h1 className="text-3xl font-bold text-white mb-2">{project.name}</h1>
+            <p className="text-white/70 text-lg">{project.client}</p>
+          </div>
+        </div>
+        {project.description && (
+          <p className="text-white/80 text-lg">{project.description}</p>
+        )}
+      </div>
+
+      {/* Tiles Grid */}
+      <div>
+        <h2 className="text-white text-xl font-semibold mb-4">Resources</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {tiles.map((tile) => (
+            <div
+              key={tile.id}
+              className="gradient-card rounded-xl p-6 hover:scale-105 transition-transform cursor-pointer group relative"
+            >
+              <a
+                href={tile.url}
+                target={tile.is_external ? "_blank" : "_self"}
+                rel={tile.is_external ? "noopener noreferrer" : undefined}
+                className="block"
+              >
+                {tile.image_url ? (
+                  <div className="w-16 h-16 rounded-lg overflow-hidden mb-4 bg-white/10 flex items-center justify-center">
+                    <img 
+                      src={tile.image_url} 
+                      alt={tile.title}
+                      className="w-full h-full object-contain bg-white/5"
+                    />
+                  </div>
+                ) : (
+                  <div className="w-16 h-16 rounded-lg bg-gradient-blue-purple flex items-center justify-center mb-4">
+                    <span className="text-white font-bold text-xl">
+                      {tile.title.substring(0, 2).toUpperCase()}
+                    </span>
+                  </div>
+                )}
+                <h3 className="text-white font-semibold text-lg mb-2">{tile.title}</h3>
+                {tile.description && (
+                  <p className="text-white/70 text-sm mb-2">{tile.description}</p>
+                )}
+                {tile.is_external && (
+                  <p className="text-white/40 text-xs flex items-center">
+                    External link <ExternalLink className="w-3 h-3 ml-1" />
+                  </p>
+                )}
+              </a>
+              
+              {/* Edit/Delete buttons on hover */}
+              <div className="absolute top-4 right-4 flex space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    startEditTile(tile);
+                  }}
+                  className="bg-white/10 hover:bg-white/20 p-2 rounded-lg text-white"
+                >
+                  <Edit className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    deleteTile(tile.id);
+                  }}
+                  className="bg-red-500/20 hover:bg-red-500/30 p-2 rounded-lg text-red-400"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ))}
+          
+          {tiles.length === 0 && (
+            <div className="col-span-full text-center py-12">
+              <p className="text-white/50 text-lg mb-4">Nog geen tiles toegevoegd</p>
+              <p className="text-white/40 text-sm">Klik op "Tile Toevoegen" om te beginnen</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+
+      {/* Kanban Board - Project Tasks */}
+      <div>
+        <h2 className="text-white text-xl font-semibold mb-4">Taken</h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {kanbanColumns.map((column) => {
+            const columnTasks = tasks.filter(t => t.status === column.id);
+            const Icon = column.icon;
+            
+            return (
+              <div
+                key={column.id}
+                onDragOver={handleDragOver}
+                onDrop={(e) => handleDrop(e, column.id)}
+                className="glass-effect rounded-xl p-6"
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center space-x-3">
+                    <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${column.color} flex items-center justify-center`}>
+                      <Icon className="w-5 h-5 text-white" />
+                    </div>
+                    <div>
+                      <h3 className="text-white font-semibold">{column.label}</h3>
+                      <p className="text-white/60 text-sm">{columnTasks.length} taken</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setAddingTaskToColumn(column.id)}
+                    className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors"
+                    title="Taak toevoegen"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  {addingTaskToColumn === column.id && (
+                    <div className="bg-white/5 border border-blue-400/50 rounded-lg p-3">
+                      <input
+                        type="text"
+                        value={newTaskTitle}
+                        onChange={(e) => setNewTaskTitle(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            addTask(column.id);
+                          } else if (e.key === 'Escape') {
+                            setAddingTaskToColumn(null);
+                            setNewTaskTitle('');
+                            setNewTaskDueDate('');
+                          }
+                        }}
+                        placeholder="Taak titel..."
+                        className="w-full bg-transparent border-none text-white placeholder-white/40 focus:outline-none mb-2"
+                        autoFocus
+                      />
+                      <input
+                        type="date"
+                        value={newTaskDueDate}
+                        onChange={(e) => setNewTaskDueDate(e.target.value)}
+                        className="w-full bg-white/10 border border-white/20 rounded px-2 py-1 text-white text-sm focus:outline-none focus:border-blue-400 mb-2"
+                        placeholder="Deadline (optioneel)"
+                      />
+                      <div className="flex space-x-2 mb-2">
+                        <button
+                          type="button"
+                          onClick={() => setNewTaskType('task')}
+                          className={`flex-1 flex items-center justify-center space-x-1 px-3 py-2 rounded text-sm transition-colors ${
+                            newTaskType === 'task' 
+                              ? 'bg-blue-500 text-white' 
+                              : 'bg-white/10 text-white/60 hover:bg-white/20'
+                          }`}
+                        >
+                          <CheckSquare className="w-4 h-4" />
+                          <span>Taak</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setNewTaskType('social_post')}
+                          className={`flex-1 flex items-center justify-center space-x-1 px-3 py-2 rounded text-sm transition-colors ${
+                            newTaskType === 'social_post' 
+                              ? 'bg-pink-500 text-white' 
+                              : 'bg-white/10 text-white/60 hover:bg-white/20'
+                          }`}
+                        >
+                          <Instagram className="w-4 h-4" />
+                          <span>Social Post</span>
+                        </button>
+                      </div>
+                      <div className="flex space-x-2">
+                        <button
+                          onClick={() => addTask(column.id)}
+                          className="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-sm py-1.5 rounded transition-colors"
+                        >
+                          Toevoegen
+                        </button>
+                        <button
+                          onClick={() => {
+                            setAddingTaskToColumn(null);
+                            setNewTaskTitle('');
+                            setNewTaskDueDate('');
+                            setNewTaskType('task');
+                          }}
+                          className="flex-1 bg-white/10 hover:bg-white/20 text-white text-sm py-1.5 rounded transition-colors"
+                        >
+                          Annuleren
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {columnTasks.map((task) => (
+                    <div
+                      key={task.id}
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, task)}
+                      className="bg-white/5 border border-white/10 rounded-lg p-4 cursor-move hover:bg-white/10 transition-colors group"
+                    >
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-2 mb-1">
+                            {task.task_type === 'social_post' ? (
+                              <Instagram className="w-4 h-4 text-pink-400" />
+                            ) : (
+                              <CheckSquare className="w-4 h-4 text-blue-400" />
+                            )}
+                            <h4 className="text-white font-medium">{task.title}</h4>
+                          </div>
+                          {task.description && (
+                            <p className="text-white/60 text-sm mb-2">{task.description}</p>
+                          )}
+                          {task.due_date && (
+                            <p className="text-white/40 text-xs">
+                              📅 {new Date(task.due_date).toLocaleDateString('nl-NL')}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={() => deleteTask(task.id)}
+                            className="p-1 text-red-400 hover:text-red-300"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                          <GripVertical className="w-4 h-4 text-white/40" />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  
+                  {columnTasks.length === 0 && (
+                    <div className="text-center py-8 text-white/40 text-sm">
+                      Nog geen taken
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        
+        {tasks.length === 0 && (
+          <div className="text-center py-12 glass-effect rounded-xl">
+            <p className="text-white/50 text-lg mb-2">Nog geen taken</p>
+            <p className="text-white/40 text-sm">
+              Taken die je toevoegt in de agenda verschijnen automatisch hier
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Project Agenda */}
+      {showAgenda && (
+        <div className="glass-effect rounded-xl p-6">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-white text-xl font-semibold flex items-center">
+              <Calendar className="w-6 h-6 mr-3" />
+              Project Agenda - {project.name}
+            </h2>
+            <div className="flex items-center space-x-4">
+              <button
+                onClick={() => setCurrentAgendaDate(new Date(currentAgendaDate.getFullYear(), currentAgendaDate.getMonth() - 1, 1))}
+                className="p-2 text-white/80 hover:text-white transition-colors"
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+              <span className="text-white font-medium min-w-[200px] text-center">
+                {['Januari', 'Februari', 'Maart', 'April', 'Mei', 'Juni', 'Juli', 'Augustus', 'September', 'Oktober', 'November', 'December'][currentAgendaDate.getMonth()]} {currentAgendaDate.getFullYear()}
+              </span>
+              <button
+                onClick={() => setCurrentAgendaDate(new Date(currentAgendaDate.getFullYear(), currentAgendaDate.getMonth() + 1, 1))}
+                className="p-2 text-white/80 hover:text-white transition-colors"
+              >
+                <ChevronRight className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+          {renderProjectAgenda()}
+        </div>
+      )}
+
+      {/* Colors - Dynamic per project */}
+      <div className="glass-effect rounded-xl p-5 border border-white/10">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-semibold text-white">Colors</h2>
+          <button
+            onClick={() => setShowAddColorModal(true)}
+            className="px-3 py-1.5 bg-blue-500 hover:bg-blue-600 rounded-lg text-white text-sm flex items-center space-x-1"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Kleur Toevoegen</span>
+          </button>
+        </div>
+        {projectColors.length === 0 ? (
+          <div className="text-center py-8 text-white/40">
+            <p>Nog geen kleuren toegevoegd</p>
+            <p className="text-xs mt-1">Klik op "Kleur Toevoegen" om te beginnen</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {projectColors.map((color) => (
+              <div
+                key={color.id}
+                className="group relative flex items-center gap-3 rounded-lg border border-white/10 px-3 py-2"
+              >
+                <div
+                  className="w-8 h-8 rounded-md border border-white/10 shrink-0 cursor-pointer"
+                  style={{ backgroundColor: color.hex }}
+                  onClick={() => handleCopyColor(color.hex)}
+                  title="Klik om HEX te kopiëren"
+                />
+                <div className="text-[11px] leading-tight text-white/70 space-y-0.5 flex-1">
+                  {color.name && (
+                    <div className="font-semibold text-white text-xs mb-1">{color.name}</div>
+                  )}
+                  <div>
+                    <span className="font-semibold text-white mr-1">HEX</span>
+                    <span className="font-mono">{color.hex}</span>
+                  </div>
+                  <div>
+                    <span className="font-semibold text-white mr-1">RGB</span>
+                    <span className="font-mono text-white/60">{color.rgb}</span>
+                  </div>
+                  <div>
+                    <span className="font-semibold text-white mr-1">CMYK</span>
+                    <span className="font-mono text-white/60">{color.cmyk}</span>
+                  </div>
+                </div>
+                <div className="absolute top-2 right-2 flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    onClick={() => startEditColor(color)}
+                    className="p-1 bg-white/10 hover:bg-white/20 rounded text-white"
+                  >
+                    <Edit className="w-3 h-3" />
+                  </button>
+                  <button
+                    onClick={() => deleteColor(color.id)}
+                    className="p-1 bg-red-500/20 hover:bg-red-500/30 rounded text-red-400"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Fonts - Dynamic per project */}
+      <div className="glass-effect rounded-xl p-5 border border-white/10">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-semibold text-white">Fonts</h2>
+          <button
+            onClick={() => setShowAddFontModal(true)}
+            className="px-3 py-1.5 bg-blue-500 hover:bg-blue-600 rounded-lg text-white text-sm flex items-center space-x-1"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Font Toevoegen</span>
+          </button>
+        </div>
+        {projectFonts.length === 0 ? (
+          <div className="text-center py-8 text-white/40">
+            <p>Nog geen fonts toegevoegd</p>
+            <p className="text-xs mt-1">Klik op "Font Toevoegen" om te beginnen</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+            {projectFonts.map((font) => (
+              <div key={font.id} className="group relative rounded-lg border border-white/10 px-4 py-3 flex flex-col gap-1">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-xs uppercase tracking-wide text-white/40">{font.font_type}</span>
+                    <div className="text-sm font-semibold text-white">{font.name}</div>
+                  </div>
+                  {font.font_url && (
+                    <a
+                      href={font.font_url}
+                      download
+                      className="p-1.5 rounded-md border border-white/20 hover:border-blue-400/60 hover:bg-white/5 transition-colors"
+                      title="Download font"
+                    >
+                      <Download className="w-3 h-3 text-white/60 hover:text-white" />
+                    </a>
+                  )}
+                </div>
+                <div className="mt-1 text-white/80" style={{ fontFamily: font.font_family }}>
+                  {font.example_text || 'The quick brown fox jumps over the lazy dog'}
+                </div>
+                <div className="absolute top-2 right-2 flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    onClick={() => startEditFont(font)}
+                    className="p-1 bg-white/10 hover:bg-white/20 rounded text-white"
+                  >
+                    <Edit className="w-3 h-3" />
+                  </button>
+                  <button
+                    onClick={() => deleteFont(font.id)}
+                    className="p-1 bg-red-500/20 hover:bg-red-500/30 rounded text-red-400"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+
+      {/* Email Integration Section */}
+      <div className="space-y-6">
+        <ProjectEmailFilters projectId={projectId} />
+        <ProjectEmailList projectId={projectId} />
+      </div>
+
+      {/* Add/Edit Color Modal */}
+      {showAddColorModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="gradient-card rounded-xl p-6 w-full max-w-md">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-white text-xl font-semibold">
+                {editingColor ? 'Kleur Bewerken' : 'Kleur Toevoegen'}
+              </h2>
+              <button onClick={resetColorForm} className="text-white/70 hover:text-white">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-white/70 text-sm mb-2">Naam (optioneel)</label>
+                <input
+                  type="text"
+                  value={editingColor ? editingColor.name : newColor.name}
+                  onChange={(e) => editingColor 
+                    ? setEditingColor({...editingColor, name: e.target.value})
+                    : setNewColor({...newColor, name: e.target.value})
+                  }
+                  className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-400"
+                  placeholder="Bijv. Primary Blue"
+                />
+              </div>
+
+              <div>
+                <label className="block text-white/70 text-sm mb-2">HEX Kleur *</label>
+                <div className="flex gap-3">
+                  <input
+                    type="color"
+                    value={editingColor ? editingColor.hex : newColor.hex}
+                    onChange={(e) => editingColor 
+                      ? setEditingColor({...editingColor, hex: e.target.value})
+                      : setNewColor({...newColor, hex: e.target.value})
+                    }
+                    className="w-16 h-12 rounded-lg border border-white/20 cursor-pointer"
+                  />
+                  <input
+                    type="text"
+                    value={editingColor ? editingColor.hex : newColor.hex}
+                    onChange={(e) => editingColor 
+                      ? setEditingColor({...editingColor, hex: e.target.value})
+                      : setNewColor({...newColor, hex: e.target.value})
+                    }
+                    className="flex-1 px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white font-mono focus:outline-none focus:border-blue-400"
+                    placeholder="#59BAFF"
+                  />
+                </div>
+                <p className="text-white/50 text-xs mt-2">
+                  RGB en CMYK worden automatisch berekend
+                </p>
+              </div>
+
+              <div className="bg-white/5 rounded-lg p-4 space-y-2">
+                <div className="text-sm">
+                  <span className="text-white/70 font-semibold">RGB:</span>
+                  <span className="text-white ml-2 font-mono">
+                    {hexToRgbString(editingColor ? editingColor.hex : newColor.hex)}
+                  </span>
+                </div>
+                <div className="text-sm">
+                  <span className="text-white/70 font-semibold">CMYK:</span>
+                  <span className="text-white ml-2 font-mono">
+                    {hexToCmykString(editingColor ? editingColor.hex : newColor.hex)}
+                  </span>
+                </div>
+              </div>
+            </div>
+            
+            <div className="flex space-x-4 mt-6">
+              <button 
+                onClick={editingColor ? updateColor : addColor}
+                className="btn-primary px-6 py-2 rounded-lg text-white font-medium flex-1"
+              >
+                {editingColor ? 'Opslaan' : 'Toevoegen'}
+              </button>
+              <button 
+                onClick={resetColorForm}
+                className="glass-effect px-6 py-2 rounded-lg text-white font-medium flex-1"
+              >
+                Annuleren
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add/Edit Font Modal */}
+      {showAddFontModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="gradient-card rounded-xl p-6 w-full max-w-md">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-white text-xl font-semibold">
+                {editingFont ? 'Font Bewerken' : 'Font Toevoegen'}
+              </h2>
+              <button onClick={resetFontForm} className="text-white/70 hover:text-white">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-white/70 text-sm mb-2">Naam *</label>
+                <input
+                  type="text"
+                  value={editingFont ? editingFont.name : newFont.name}
+                  onChange={(e) => editingFont 
+                    ? setEditingFont({...editingFont, name: e.target.value})
+                    : setNewFont({...newFont, name: e.target.value})
+                  }
+                  className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-400"
+                  placeholder="Bijv. Acherus"
+                />
+              </div>
+
+              <div>
+                <label className="block text-white/70 text-sm mb-2">Type *</label>
+                <select
+                  value={editingFont ? editingFont.font_type : newFont.font_type}
+                  onChange={(e) => editingFont 
+                    ? setEditingFont({...editingFont, font_type: e.target.value})
+                    : setNewFont({...newFont, font_type: e.target.value})
+                  }
+                  className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-400"
+                >
+                  <option value="heading">Heading</option>
+                  <option value="body">Body</option>
+                  <option value="accent">Accent</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-white/70 text-sm mb-2">Font Family *</label>
+                <input
+                  type="text"
+                  value={editingFont ? editingFont.font_family : newFont.font_family}
+                  onChange={(e) => editingFont 
+                    ? setEditingFont({...editingFont, font_family: e.target.value})
+                    : setNewFont({...newFont, font_family: e.target.value})
+                  }
+                  className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-400"
+                  placeholder="Acherus, sans-serif"
+                />
+              </div>
+
+              <div>
+                <label className="block text-white/70 text-sm mb-2">Font URL (optioneel)</label>
+                <input
+                  type="text"
+                  value={editingFont ? editingFont.font_url : newFont.font_url}
+                  onChange={(e) => editingFont 
+                    ? setEditingFont({...editingFont, font_url: e.target.value})
+                    : setNewFont({...newFont, font_url: e.target.value})
+                  }
+                  className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-400"
+                  placeholder="https://example.com/font.zip"
+                />
+              </div>
+
+              <div>
+                <label className="block text-white/70 text-sm mb-2">Voorbeeld Tekst (optioneel)</label>
+                <input
+                  type="text"
+                  value={editingFont ? editingFont.example_text : newFont.example_text}
+                  onChange={(e) => editingFont 
+                    ? setEditingFont({...editingFont, example_text: e.target.value})
+                    : setNewFont({...newFont, example_text: e.target.value})
+                  }
+                  className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-400"
+                  placeholder="Project Heading Voorbeeld"
+                />
+              </div>
+            </div>
+            
+            <div className="flex space-x-4 mt-6">
+              <button 
+                onClick={editingFont ? updateFont : addFont}
+                className="btn-primary px-6 py-2 rounded-lg text-white font-medium flex-1"
+              >
+                {editingFont ? 'Opslaan' : 'Toevoegen'}
+              </button>
+              <button 
+                onClick={resetFontForm}
+                className="glass-effect px-6 py-2 rounded-lg text-white font-medium flex-1"
+              >
+                Annuleren
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Copy Toast Notification */}
+      {copyToast && (
+        <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-50 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg animate-fade-in">
+          {copyToast}
+        </div>
+      )}
+      {/* Add/Edit Tile Modal */}
+      {showAddTileModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="gradient-card rounded-xl p-6 w-full max-w-md">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-white text-xl font-semibold">
+                {editingTile ? 'Tile Bewerken' : 'Tile Toevoegen'}
+              </h2>
+              <button 
+                onClick={resetTileForm}
+                className="text-white/70 hover:text-white"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-white/70 text-sm mb-2">Titel *</label>
+                <input
+                  type="text"
+                  value={editingTile ? editingTile.title : newTile.title}
+                  onChange={(e) => editingTile 
+                    ? setEditingTile({...editingTile, title: e.target.value})
+                    : setNewTile({...newTile, title: e.target.value})
+                  }
+                  className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-400"
+                  placeholder="Canva, Figma, etc."
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="block text-white/70 text-sm mb-2">Beschrijving</label>
+                <input
+                  type="text"
+                  value={editingTile ? editingTile.description : newTile.description}
+                  onChange={(e) => editingTile 
+                    ? setEditingTile({...editingTile, description: e.target.value})
+                    : setNewTile({...newTile, description: e.target.value})
+                  }
+                  className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-400"
+                  placeholder="Design platform for graphics"
+                />
+              </div>
+
+              <div>
+                <label className="block text-white/70 text-sm mb-2">URL *</label>
+                <input
+                  type="url"
+                  value={editingTile ? editingTile.url : newTile.url}
+                  onChange={(e) => editingTile 
+                    ? setEditingTile({...editingTile, url: e.target.value})
+                    : setNewTile({...newTile, url: e.target.value})
+                  }
+                  className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-400"
+                  placeholder="https://canva.com"
+                />
+              </div>
+
+              <div>
+                <label className="block text-white/70 text-sm mb-2">Afbeelding URL</label>
+                <input
+                  type="url"
+                  value={editingTile ? editingTile.image_url : newTile.image_url}
+                  onChange={(e) => editingTile 
+                    ? setEditingTile({...editingTile, image_url: e.target.value})
+                    : setNewTile({...newTile, image_url: e.target.value})
+                  }
+                  className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-400"
+                  placeholder="https://example.com/logo.png"
+                />
+              </div>
+
+              <div className="flex items-center">
+                <input
+                  type="checkbox"
+                  id="is_external"
+                  checked={editingTile ? editingTile.is_external : newTile.is_external}
+                  onChange={(e) => editingTile 
+                    ? setEditingTile({...editingTile, is_external: e.target.checked})
+                    : setNewTile({...newTile, is_external: e.target.checked})
+                  }
+                  className="w-4 h-4 rounded border-white/20 bg-white/10 text-blue-500 focus:ring-blue-500"
+                />
+                <label htmlFor="is_external" className="ml-2 text-white/70 text-sm">
+                  Externe link (opent in nieuw tabblad)
+                </label>
+              </div>
+            </div>
+            
+            <div className="flex space-x-4 mt-6">
+              <button 
+                onClick={editingTile ? updateTile : addTile}
+                className="btn-primary px-6 py-2 rounded-lg text-white font-medium flex-1"
+              >
+                {editingTile ? 'Opslaan' : 'Toevoegen'}
+              </button>
+              <button 
+                onClick={resetTileForm}
+                className="glass-effect px-6 py-2 rounded-lg text-white font-medium flex-1"
+              >
+                Annuleren
+              </button>
             </div>
           </div>
         </div>

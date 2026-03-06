@@ -2,43 +2,28 @@ import React, { useState, useEffect } from 'react';
 import { 
   TrendingUp, 
   Folder, 
-  Palette, 
-  Smartphone, 
-  LayoutGrid,
-  Clock, 
-  DollarSign, 
+  MapPin,
+  Lightbulb,
   Activity,
   Star
 } from 'lucide-react';
+import TabQuickLinks from './TabQuickLinks';
 
 const HomePage = ({ setActiveTab }) => {
   const [stats, setStats] = useState({
-    totalProjects: 0,
-    activeProjects: 0,
-    totalThemes: 0,
-    totalApps: 0,
-    totalHours: 0,
-    totalRevenue: 0
+    totalProspects: 0,
+    totalIdeas: 0
   });
 
+  // Get platform directly without state to avoid re-render
+  const platform = localStorage.getItem('selected-platform') || 'Privé';
+
   useEffect(() => {
-    // Load data from localStorage
-    const projects = JSON.parse(localStorage.getItem('shopify-dashboard-projects') || '[]');
-    const themes = JSON.parse(localStorage.getItem('shopify-dashboard-themes') || '[]');
-    const apps = JSON.parse(localStorage.getItem('shopify-dashboard-apps') || '[]');
-    const salesData = JSON.parse(localStorage.getItem('shopify-dashboard-sales') || '[]');
-
-    const activeProjects = projects.filter(p => p.status === 'In Progress').length;
-    const totalHours = salesData.filter(s => s.included).reduce((sum, s) => sum + s.hours, 0);
-    const totalRevenue = salesData.filter(s => s.included).reduce((sum, s) => sum + s.total, 0);
-
+    // Load data from Supabase would go here
+    // For now, placeholder values
     setStats({
-      totalProjects: projects.length,
-      activeProjects,
-      totalThemes: themes.length,
-      totalApps: apps.length,
-      totalHours,
-      totalRevenue
+      totalProspects: 0,
+      totalIdeas: 0
     });
   }, []);
 
@@ -58,33 +43,33 @@ const HomePage = ({ setActiveTab }) => {
       color: 'bg-gradient-green-blue' 
     },
     { 
-      id: 'themes', 
-      title: 'Themes', 
-      description: 'Shopify themes', 
-      icon: Palette, 
+      id: 'prospects', 
+      title: 'Prospects', 
+      description: 'Potentiële klanten', 
+      icon: MapPin, 
       color: 'bg-gradient-purple-pink' 
     },
     { 
-      id: 'apps', 
-      title: 'Apps', 
-      description: 'App integraties', 
-      icon: LayoutGrid, 
+      id: 'ideacenter', 
+      title: 'Idea Center', 
+      description: 'Ideeën & inspiratie', 
+      icon: Lightbulb, 
       color: 'bg-gradient-orange-pink' 
     }
   ];
 
   const recentActivity = [
     { type: 'project', title: 'E-commerce Store Redesign', action: 'Updated', time: '2 uur geleden', status: 'success' },
-    { type: 'theme', title: 'Minimal Pro', action: 'Added', time: '4 uur geleden', status: 'info' },
-    { type: 'app', title: 'Inventory Manager', action: 'Installed', time: '1 dag geleden', status: 'success' },
+    { type: 'prospect', title: 'Nieuw prospect toegevoegd', action: 'Added', time: '4 uur geleden', status: 'info' },
+    { type: 'idea', title: 'Nieuwe idee opgeslagen', action: 'Created', time: '1 dag geleden', status: 'success' },
     { type: 'sales', title: 'Quote Generated', action: 'Created', time: '2 dagen geleden', status: 'warning' }
   ];
 
   const getActivityIcon = (type) => {
     switch (type) {
       case 'project': return Folder;
-      case 'theme': return Palette;
-      case 'app': return LayoutGrid;  // ⚏ Grid icoon
+      case 'prospect': return MapPin;
+      case 'idea': return Lightbulb;
       case 'sales': return TrendingUp;
       default: return Activity;
     }
@@ -107,52 +92,12 @@ const HomePage = ({ setActiveTab }) => {
           Welkom terug, Gijs! 👋
         </h1>
         <p className="text-white/70 text-lg">
-          Hier is een overzicht van je Shopify dashboard
+          Hier is een overzicht van je BnB dashboard
         </p>
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        <div className="gradient-card rounded-xl p-6">
-          <div className="flex items-center">
-            <Folder className="w-8 h-8 text-blue-400 mr-4" />
-            <div>
-              <p className="text-white/70 text-sm">Totaal Projecten</p>
-              <p className="text-white text-2xl font-bold">{stats.totalProjects}</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="gradient-card rounded-xl p-6">
-          <div className="flex items-center">
-            <Activity className="w-8 h-8 text-green-400 mr-4" />
-            <div>
-              <p className="text-white/70 text-sm">Actieve Projecten</p>
-              <p className="text-white text-2xl font-bold">{stats.activeProjects}</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="gradient-card rounded-xl p-6">
-          <div className="flex items-center">
-            <Clock className="w-8 h-8 text-purple-400 mr-4" />
-            <div>
-              <p className="text-white/70 text-sm">Totaal Uren</p>
-              <p className="text-white text-2xl font-bold">{stats.totalHours}h</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="gradient-card rounded-xl p-6">
-          <div className="flex items-center">
-            <DollarSign className="w-8 h-8 text-yellow-400 mr-4" />
-            <div>
-              <p className="text-white/70 text-sm">Totale Omzet</p>
-              <p className="text-white text-2xl font-bold">€{stats.totalRevenue.toLocaleString()}</p>
-            </div>
-          </div>
-        </div>
-      </div>
+      {/* Tab Quick Links */}
+      <TabQuickLinks tabName={platform === 'Bijberoep' ? 'Bijberoep-Home' : 'Home'} />
 
       {/* Quick Actions */}
       <div>
@@ -210,11 +155,11 @@ const HomePage = ({ setActiveTab }) => {
           <div className="space-y-4">
             <div className="flex items-center justify-between p-3 bg-white/5 rounded-lg">
               <div>
-                <p className="text-white font-medium">Themes</p>
-                <p className="text-white/60 text-sm">{stats.totalThemes} beschikbaar</p>
+                <p className="text-white font-medium">Prospects</p>
+                <p className="text-white/60 text-sm">Potentiële klanten beheren</p>
               </div>
               <button 
-                onClick={() => setActiveTab('themes')}
+                onClick={() => setActiveTab('prospects')}
                 className="btn-primary px-4 py-2 rounded-lg text-white text-sm"
               >
                 Bekijk
@@ -223,40 +168,34 @@ const HomePage = ({ setActiveTab }) => {
             
             <div className="flex items-center justify-between p-3 bg-white/5 rounded-lg">
               <div>
-                <p className="text-white font-medium">Apps</p>
-                <p className="text-white/60 text-sm">{stats.totalApps} geïnstalleerd</p>
+                <p className="text-white font-medium">Idea Center</p>
+                <p className="text-white/60 text-sm">Ideeën & inspiratie</p>
               </div>
               <button 
-                onClick={() => setActiveTab('apps')}
+                onClick={() => setActiveTab('ideacenter')}
                 className="btn-primary px-4 py-2 rounded-lg text-white text-sm"
               >
-                Beheer
+                Open
               </button>
             </div>
             
             <div className="flex items-center justify-between p-3 bg-white/5 rounded-lg">
               <div>
-                <p className="text-white font-medium">Logging</p>
-                <p className="text-white/60 text-sm">Tijd registratie</p>
+                <p className="text-white font-medium">Branding</p>
+                <p className="text-white/60 text-sm">Brand resources</p>
               </div>
               <button 
-                onClick={() => setActiveTab('logging')}
+                onClick={() => setActiveTab('branding')}
                 className="btn-primary px-4 py-2 rounded-lg text-white text-sm"
               >
-                Log Tijd
+                Beheer
               </button>
             </div>
           </div>
         </div>
       </div>
       
-      {/* Alessandro Message */}
-      <div className="gradient-card rounded-xl p-4 mb-8 text-center">
-        <p className="text-white/80 text-lg font-medium">
-          💡 A logske a day keeps Alessandro away
-        </p>
-      </div>
-
+      
     </div>
   );
 };

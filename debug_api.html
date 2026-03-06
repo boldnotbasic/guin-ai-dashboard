@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Gemini API Debug</title>
+</head>
+<body>
+    <h1>Gemini API Endpoint Test</h1>
+    <input type="text" id="apiKey" placeholder="Plak je API key hier" style="width: 400px; padding: 10px;">
+    <button onclick="testAllEndpoints()">Test Alle Endpoints</button>
+    <pre id="output" style="background: #f0f0f0; padding: 20px; margin-top: 20px;"></pre>
+
+    <script>
+        async function testAllEndpoints() {
+            const apiKey = document.getElementById('apiKey').value;
+            const output = document.getElementById('output');
+            
+            if (!apiKey) {
+                output.textContent = 'Voer eerst een API key in!';
+                return;
+            }
+            
+            output.textContent = 'Testing endpoints...\n\n';
+            
+            const endpointsToTest = [
+                'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent',
+                'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent',npm install @google/genai
+
+                'https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent',
+                'https://generativelanguage.googleapis.com/v1/models/gemini-1.5-pro:generateContent',
+                'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent',
+                'https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent'
+            ];
+            
+            for (const endpoint of endpointsToTest) {
+                output.textContent += `\nTesting: ${endpoint}\n`;
+                
+                try {
+                    const response = await fetch(`${endpoint}?key=${apiKey}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{ parts: [{ text: 'Zeg hallo' }] }]
+                        })
+                    });
+                    
+                    output.textContent += `Status: ${response.status} ${response.statusText}\n`;
+                    
+                    const data = await response.json();
+                    
+                    if (response.ok && data.candidates) {
+                        output.textContent += `✅ SUCCESS! Response: ${data.candidates[0]?.content?.parts?.[0]?.text}\n`;
+                        output.textContent += `\n🎯 USE THIS ENDPOINT: ${endpoint}\n`;
+                        output.textContent += `\n=== WORKING CONFIGURATION ===\n`;
+                        output.textContent += `API Version: ${endpoint.includes('v1beta') ? 'v1beta' : 'v1'}\n`;
+                        output.textContent += `Model: ${endpoint.split('/models/')[1].split(':')[0]}\n`;
+                        break;
+                    } else {
+                        output.textContent += `❌ Error: ${JSON.stringify(data.error || data, null, 2)}\n`;
+                    }
+                } catch (error) {
+                    output.textContent += `❌ Network Error: ${error.message}\n`;
+                }
+                
+                output.textContent += '\n' + '='.repeat(80) + '\n';
+            }
+            
+            output.textContent += '\n\n=== FINISHED ===\n';
+        }
+    </script>
+</body>
+</html>

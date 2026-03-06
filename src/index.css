@@ -12,9 +12,8 @@
 
 body {
   font-family: 'Inter', sans-serif;
-  background: linear-gradient(135deg, #0c1445 0%, #1e2a78 25%, #2d3a9f 50%, #1e2a78 75%, #0c1445 100%);
-  background-size: 400% 400%;
-  animation: gradientShift 8s ease-in-out infinite;
+  background: url('../public/background.jpg') no-repeat center center fixed;
+  background-size: cover;
   min-height: 100vh;
 }
 
@@ -66,13 +65,16 @@ body {
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+  background: white;
+  color: #9333ea;
   transition: all 0.3s ease;
+  font-weight: 600;
 }
 
 .btn-primary:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 25px rgba(79, 172, 254, 0.4);
+  box-shadow: 0 8px 25px rgba(147, 51, 234, 0.3);
+  background: #f3f4f6;
 }
 
 .btn-secondary {

@@ -1,0 +1,32 @@
+-- =============================================
+-- FIX VOOR IDEA CENTER ZONDER LOGIN
+-- =============================================
+-- Voer deze SQL uit in Supabase SQL Editor
+
+-- Optie 1: Schakel RLS uit (Simpelste oplossing)
+ALTER TABLE ideas DISABLE ROW LEVEL SECURITY;
+
+-- Optie 2: Maak user_id optional (Alternatief)
+-- ALTER TABLE ideas ALTER COLUMN user_id DROP NOT NULL;
+-- 
+-- -- Update RLS policies om NULL user_id toe te staan
+-- DROP POLICY IF EXISTS "Users can view their own ideas" ON ideas;
+-- DROP POLICY IF EXISTS "Users can insert their own ideas" ON ideas;
+-- DROP POLICY IF EXISTS "Users can update their own ideas" ON ideas;
+-- DROP POLICY IF EXISTS "Users can delete their own ideas" ON ideas;
+-- 
+-- CREATE POLICY "Anyone can view ideas"
+--   ON ideas FOR SELECT
+--   USING (true);
+-- 
+-- CREATE POLICY "Anyone can insert ideas"
+--   ON ideas FOR INSERT
+--   WITH CHECK (true);
+-- 
+-- CREATE POLICY "Anyone can update ideas"
+--   ON ideas FOR UPDATE
+--   USING (true);
+-- 
+-- CREATE POLICY "Anyone can delete ideas"
+--   ON ideas FOR DELETE
+--   USING (true);

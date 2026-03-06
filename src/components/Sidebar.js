@@ -14,6 +14,7 @@ import {
   Calculator,
   Users,
   Baby,
+  Trash2,
   CheckCircle,
   User,
   Building,
@@ -44,23 +45,54 @@ import {
   Wrench,
   ChevronRight,
   ArrowUp,
-  FileImage
+  FileImage,
+  ListTodo,
+  BookOpen,
+  Lightbulb,
+  MapPin,
+  Car,
+  Beef,
+  Target,
+  UserCircle,
+  Briefcase as BriefcaseIcon,
+  Sparkles,
+  Music,
+  ChefHat,
+  Package,
+  Gift
 } from 'lucide-react';
+import { db } from '../utils/supabaseClient';
 
 // Direct icon mapping - no state, always fresh
 const getMainIcon = (id) => {
   const iconMap = {
     home: Home,
     sales: DollarSign,
-    upsells: Zap,
+    prospects: MapPin,
+    seo: Zap,
+    stoktelling: Package,     // 📦 Stoktelling
+    habit: CheckCircle,
+    aquarium: Activity,
+    auto: Car,
+    jerky: Beef,
+    crabcave: Shield,
+    cavedarts: Target,
+    '2do': ListTodo,
+    beleggen: TrendingUp,
+    waardebonnen: Gift,       // 🎁 Waardebonnen
     learning: Activity,
     branding: Brush,
     projecten: Folder,        // 📁 Folder icoon
+    ideacenter: Lightbulb,    // 💡 Lightbulb icoon
+    'inspiration-center': Sparkles, // ✨ Inspiration Center
+    reizen: Globe,            // 🌐 Reizen
+    wandelingen: MapPin,      // 📍 Wandelingen
+    'google-home': Smartphone,// 📱 Google Home
+    festivals: Music,         // 🎵 Festivals
+    koken: ChefHat,           // 👨‍🍳 Koken
+    kosten: BarChart3,        // 💸 Kosten
     themes: Palette,          // 🎨 Palette icoon (niet emmertje)
     apps: LayoutGrid,         // ⚏ Grid icoon (2x2 vierkanten)
-    'faq-clients': HelpCircle,
-    users: UsersRound,
-    logging: Clock,           // 🕐 Klokje icoon
     settings: Wrench,
   };
   return iconMap[id] || Home;
@@ -76,7 +108,7 @@ const otherIconMap = {
   'share-a-thon': TrendingUp,
 };
 
-const Sidebar = ({ activeTab, setActiveTab }) => {
+const Sidebar = ({ activeTab, setActiveTab, sidebarOpen = false, setSidebarOpen }) => {
   // Icon mapping for custom clients
   const iconComponents = {
     'User': User,
@@ -91,15 +123,26 @@ const Sidebar = ({ activeTab, setActiveTab }) => {
     'Shield': Shield
   };
 
-  // Dev mode state
-  const [isDevMode, setIsDevMode] = useState(() => {
-    return localStorage.getItem('dev-mode') === 'true';
+  // Platform state
+  const [selectedPlatform, setSelectedPlatform] = useState(() => {
+    return localStorage.getItem('selected-platform') || 'Privé';
   });
   
-  const [disabledItems, setDisabledItems] = useState(() => {
-    const saved = localStorage.getItem('dev-mode-selected-items');
-    return saved ? JSON.parse(saved) : [];
+  // Cache buster - v3.0 with Waardebonnen
+  console.log('🚀 Sidebar loaded - v3.0 - Waardebonnen added - Timestamp:', Date.now());
+
+  // Habit completion percentage
+  const [habitPercentage, setHabitPercentage] = useState(0);
+
+  // Custom Quick Links state
+  const [customQuickLinks, setCustomQuickLinks] = useState([]);
+  const [showAddQuickLinkModal, setShowAddQuickLinkModal] = useState(false);
+  const [newQuickLink, setNewQuickLink] = useState({
+    label: '',
+    url: '',
+    icon: 'Globe'
   });
+
 
   // Read approval status from localStorage
   const [salesStatus, setSalesStatus] = useState(() => {
@@ -167,37 +210,193 @@ const Sidebar = ({ activeTab, setActiveTab }) => {
     };
   }, []);
 
-  // Listen for dev mode changes
-  useEffect(() => {
-    const handleDevModeChange = (event) => {
-      setIsDevMode(event.detail.isDevMode);
-      
-      // Update disabled items
-      const saved = localStorage.getItem('dev-mode-selected-items');
-      setDisabledItems(saved ? JSON.parse(saved) : []);
-    };
+  // Menu items WITHOUT icons - icons are fetched dynamically
+  // Different menu items based on selected platform
+  const getMenuItems = () => {
+    console.log('🔍 getMenuItems called - Platform:', selectedPlatform);
+    if (selectedPlatform === 'Privé') {
+      const items = [
+        { id: 'home', label: 'Home' },
+        { id: 'habit', label: 'Habit' },
+        { id: 'aquarium', label: 'Aquarium' },
+        { id: 'auto', label: 'Auto' },
+        { id: 'jerky', label: 'Jerky' },
+        { id: 'crabcave', label: 'Cave Drinks' },
+        { id: 'cavedarts', label: 'Cave Darts' },
+        { id: '2do', label: '2DO' },
+        { id: 'beleggen', label: 'Beleggen' },
+        { id: 'waardebonnen', label: 'Waardebonnen' },
+        { id: 'reizen', label: 'Reizen' },
+        { id: 'wandelingen', label: 'Wandelingen' },
+        { id: 'festivals', label: 'Festivals' },
+        { id: 'koken', label: 'Koken' },
+        { id: 'google-home', label: 'Google home' },
+      ];
+      console.log('✅ Privé menu items:', items.map(i => i.label));
+      return items;
+    } else {
+      // Bijberoep menu items
+      return [
+        { id: 'home', label: 'Home' },
+        { id: 'sales', label: 'Sales' },
+        { id: 'prospects', label: 'Prospects' },
+        { id: 'seo', label: 'Guin.AI' },
+        { id: 'branding', label: 'Branding' },
+        { id: 'kosten', label: 'Kosten' },
+        { id: 'projecten', label: 'Projecten' },
+        { id: 'ideacenter', label: 'Idea Center' },
+        { id: 'inspiration-center', label: 'Inspiration Center' },
+        { id: 'settings', label: 'Settings' },
+      ];
+    }
+  };
 
-    window.addEventListener('devModeChanged', handleDevModeChange);
+  const [menuItems, setMenuItems] = useState(() => getMenuItems());
+
+  // Update menu items when platform changes
+  useEffect(() => {
+    const newItems = selectedPlatform === 'Privé' ? [
+      { id: 'home', label: 'Home' },
+      { id: 'habit', label: 'Habit' },
+      { id: 'aquarium', label: 'Aquarium' },
+      { id: 'auto', label: 'Auto' },
+      { id: 'jerky', label: 'Jerky' },
+      { id: 'crabcave', label: 'Cave Drinks' },
+      { id: 'cavedarts', label: 'Cave Darts' },
+      { id: '2do', label: '2DO' },
+      { id: 'beleggen', label: 'Beleggen' },
+      { id: 'waardebonnen', label: 'Waardebonnen' },
+      { id: 'reizen', label: 'Reizen' },
+      { id: 'wandelingen', label: 'Wandelingen' },
+      { id: 'festivals', label: 'Festivals' },
+      { id: 'koken', label: 'Koken' },
+      { id: 'google-home', label: 'Google home' },
+    ] : [
+      { id: 'home', label: 'Home' },
+      { id: 'sales', label: 'Sales' },
+      { id: 'prospects', label: 'Prospects' },
+      { id: 'seo', label: 'Guin.AI' },
+      { id: 'stoktelling', label: 'Stoktelling' },
+      { id: 'branding', label: 'Branding' },
+      { id: 'kosten', label: 'Kosten' },
+      { id: 'projecten', label: 'Projecten' },
+      { id: 'ideacenter', label: 'Idea Center' },
+      { id: 'inspiration-center', label: 'Inspiration Center' },
+      { id: 'settings', label: 'Settings' },
+    ];
+    
+    setMenuItems(newItems);
+    localStorage.setItem('selected-platform', selectedPlatform);
+    
+    // Navigate to home when platform changes
+    if (setActiveTab) {
+      setActiveTab('home');
+    }
+    
+    // Dispatch event to notify App.js of platform change
+    window.dispatchEvent(new CustomEvent('platformChanged', { detail: { platform: selectedPlatform } }));
+  }, [selectedPlatform, setActiveTab]);
+
+  // Load habit percentage
+  useEffect(() => {
+    const loadHabitPercentage = () => {
+      try {
+        const today = new Date();
+        const todayKey = `${today.getFullYear()}-${today.getMonth()}-${today.getDate()}`;
+        
+        // Load from localStorage (same as HabitPage)
+        const allHabitsData = localStorage.getItem('habit-tracker-all-habits');
+        const dailyHabitsData = localStorage.getItem('habit-tracker-daily-habits');
+        const completionData = localStorage.getItem('habit-tracker-completion');
+        
+        if (!allHabitsData || !dailyHabitsData) {
+          setHabitPercentage(0);
+          return;
+        }
+        
+        const allHabits = JSON.parse(allHabitsData);
+        const dailyHabits = JSON.parse(dailyHabitsData);
+        const completedHabits = completionData ? JSON.parse(completionData)[todayKey] || [] : [];
+        
+        // Get today's assigned habits
+        const todayHabitIds = dailyHabits[todayKey] || [];
+        const todayHabits = allHabits.filter(h => todayHabitIds.includes(h.id));
+        
+        if (todayHabits.length === 0) {
+          setHabitPercentage(0);
+          return;
+        }
+        
+        const percentage = Math.round((completedHabits.length / todayHabits.length) * 100);
+        setHabitPercentage(percentage);
+      } catch (error) {
+        console.error('Error loading habit percentage:', error);
+        setHabitPercentage(0);
+      }
+    };
+    
+    loadHabitPercentage();
+    const interval = setInterval(loadHabitPercentage, 30000);
+    
+    // Also listen for localStorage changes
+    window.addEventListener('storage', loadHabitPercentage);
+    
+    // Listen for custom habit completion events with slight delay for localStorage to update
+    const handleHabitUpdate = () => {
+      setTimeout(loadHabitPercentage, 50);
+    };
+    window.addEventListener('habitUpdated', handleHabitUpdate);
     
     return () => {
-      window.removeEventListener('devModeChanged', handleDevModeChange);
+      clearInterval(interval);
+      window.removeEventListener('storage', loadHabitPercentage);
+      window.removeEventListener('habitUpdated', handleHabitUpdate);
     };
   }, []);
-  // Menu items WITHOUT icons - icons are fetched dynamically
-  const [menuItems, setMenuItems] = useState([
-    { id: 'home', label: 'Home' },
-    { id: 'sales', label: 'Sales' },
-    { id: 'upsells', label: 'Upsells' },
-    { id: 'learning', label: 'Learning' },
-    { id: 'branding', label: 'Branding' },
-    { id: 'projecten', label: 'Projecten' },
-    { id: 'themes', label: 'Themes' },
-    { id: 'apps', label: 'Apps' },
-    { id: 'faq-clients', label: 'FAQ clients' },
-    { id: 'users', label: 'Users' },
-    { id: 'logging', label: 'Logging' },
-    { id: 'settings', label: 'Settings' },
-  ]);
+
+  // Load quick links from Supabase
+  useEffect(() => {
+    loadQuickLinks(selectedPlatform);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPlatform]);
+
+  const loadQuickLinks = async (platform) => {
+    try {
+      const links = await db.quickLinks.getAll(platform);
+      setCustomQuickLinks(links || []);
+    } catch (error) {
+      console.error('Error loading quick links:', error);
+    }
+  };
+
+  const addQuickLink = async () => {
+    if (!newQuickLink.label || !newQuickLink.url) {
+      alert('Vul alle velden in');
+      return;
+    }
+    
+    try {
+      const link = await db.quickLinks.create({
+        ...newQuickLink,
+        platform: selectedPlatform
+      });
+      setCustomQuickLinks([...customQuickLinks, link]);
+      setNewQuickLink({ label: '', url: '', icon: 'Globe' });
+      setShowAddQuickLinkModal(false);
+    } catch (error) {
+      console.error('Error adding quick link:', error);
+      alert('Fout bij toevoegen quick link');
+    }
+  };
+
+  const deleteQuickLink = async (id) => {
+    try {
+      await db.quickLinks.delete(id);
+      setCustomQuickLinks(customQuickLinks.filter(l => l.id !== id));
+    } catch (error) {
+      console.error('Error deleting quick link:', error);
+    }
+  };
 
   // Clear localStorage on mount
   useEffect(() => {
@@ -236,7 +435,14 @@ const Sidebar = ({ activeTab, setActiveTab }) => {
   }, [otherItems]);
 
   return (
-    <div className="w-72 min-h-screen glass-effect p-6">
+    <div className={`
+      fixed lg:sticky lg:top-0 left-0 h-screen z-40
+      w-72 glass-effect
+      flex flex-col
+      transform transition-transform duration-300 ease-in-out
+      ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+    `}>
+      <div className="flex-1 overflow-y-auto p-6 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
       {/* Logo Section */}
       <div className="mb-8">
         <button
@@ -252,6 +458,44 @@ const Sidebar = ({ activeTab, setActiveTab }) => {
             }}
           />
         </button>
+      </div>
+
+      {/* Platform Switcher */}
+      <div className="mb-6">
+        <div className="flex items-center space-x-2 bg-white/5 rounded-lg p-1">
+          <button
+            onClick={() => {
+              if (selectedPlatform !== 'Privé') {
+                localStorage.setItem('selected-platform', 'Privé');
+                window.location.reload();
+              }
+            }}
+            className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-colors flex items-center justify-center space-x-2 ${
+              selectedPlatform === 'Privé'
+                ? 'bg-gradient-blue-purple text-white'
+                : 'text-white/60 hover:text-white'
+            }`}
+          >
+            <UserCircle className="w-4 h-4" />
+            <span>Privé</span>
+          </button>
+          <button
+            onClick={() => {
+              if (selectedPlatform !== 'Bijberoep') {
+                localStorage.setItem('selected-platform', 'Bijberoep');
+                window.location.reload();
+              }
+            }}
+            className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-colors flex items-center justify-center space-x-2 ${
+              selectedPlatform === 'Bijberoep'
+                ? 'bg-gradient-blue-purple text-white'
+                : 'text-white/60 hover:text-white'
+            }`}
+          >
+            <BriefcaseIcon className="w-4 h-4" />
+            <span>Bijberoep</span>
+          </button>
+        </div>
       </div>
 
       {/* Separator */}
@@ -271,13 +515,6 @@ const Sidebar = ({ activeTab, setActiveTab }) => {
               activeTab.startsWith('sales-')
             ));
           
-          // Check if item is disabled in dev mode
-          const isDisabled = isDevMode && disabledItems.includes(item.id);
-
-          // In dev mode, completely hide disabled items from the sidebar
-          if (isDisabled) {
-            return null;
-          }
           
           const handleDragStart = (e) => {
             e.dataTransfer.setData('text/plain', index);
@@ -302,20 +539,14 @@ const Sidebar = ({ activeTab, setActiveTab }) => {
           };
           
           const handleClick = () => {
-            if (isDisabled) return; // Don't allow clicks when disabled
-            
-            // Toggle functionality: if already active, collapse
-            if (activeTab === item.id) {
-              setActiveTab('home');
-            } else {
-              setActiveTab(item.id);
-            }
+            setActiveTab(item.id);
+            if (setSidebarOpen) setSidebarOpen(false);
           };
           
           return (
             <div
               key={item.id}
-              draggable={!isDisabled}
+              draggable={true}
               onDragStart={handleDragStart}
               onDragOver={handleDragOver}
               onDrop={handleDrop}
@@ -331,9 +562,20 @@ const Sidebar = ({ activeTab, setActiveTab }) => {
                   }
                 `}
               >
-                <MoreHorizontal className={`w-4 h-4 mr-2 ${isDisabled ? 'text-white/70' : 'text-white/40 group-hover:text-white/60'} ${isDisabled ? 'cursor-not-allowed' : 'cursor-grab'}`} />
+                <MoreHorizontal className="w-4 h-4 mr-2 text-white/40 group-hover:text-white/60 cursor-grab" />
                 <Icon className="w-5 h-5 mr-3" />
                 <span className="font-medium">{item.label}</span>
+                {item.id === 'habit' && (
+                  <span className={`ml-auto text-xs font-semibold px-2 py-1 rounded-full ${
+                    habitPercentage === 100 
+                      ? 'bg-green-500/20 text-green-400' 
+                      : habitPercentage >= 50 
+                      ? 'bg-yellow-500/20 text-yellow-400' 
+                      : 'bg-red-500/20 text-red-400'
+                  }`}>
+                    {habitPercentage}%
+                  </span>
+                )}
               </button>
               
               {/* Sales Subtabs */}
@@ -347,7 +589,7 @@ const Sidebar = ({ activeTab, setActiveTab }) => {
                     className={`
                       w-full flex items-center px-3 py-2 rounded-lg text-left text-sm
                       ${activeTab === 'sales-calculator'
-                        ? 'bg-blue-500/20 text-blue-300' 
+                        ? 'bg-gradient-to-r from-pink-500/20 to-purple-500/20 text-pink-300' 
                         : 'text-white/60 hover:text-white/80 hover:bg-white/5'
                       }
                     `}
@@ -374,63 +616,13 @@ const Sidebar = ({ activeTab, setActiveTab }) => {
                       <div className="ml-6 mt-1">
                         <button
                           onClick={(e) => { e.stopPropagation(); setActiveTab('sales-royal-talens'); }}
-                          className={`w-full flex items-center px-3 py-2 rounded-lg text-left text-xs ${activeTab === 'sales-royal-talens' ? 'bg-blue-500/10 text-blue-300' : 'text-white/60 hover:text-white/80 hover:bg-white/5'}`}
+                          className={`w-full flex items-center px-3 py-2 rounded-lg text-left text-xs ${activeTab === 'sales-royal-talens' ? 'bg-gradient-to-r from-pink-500/10 to-purple-500/10 text-pink-300' : 'text-white/60 hover:text-white/80 hover:bg-white/5'}`}
                         >
                           <ArrowUp className="w-3 h-3 mr-2" /> Upsell invoice
                         </button>
                       </div>
                     );
                   })()}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setActiveTab('sales-royal-talens');
-                    }}
-                    className={`
-                      w-full flex items-center px-3 py-2 rounded-lg text-left text-sm
-                      ${activeTab === 'sales-royal-talens'
-                        ? 'bg-blue-500/20 text-blue-300' 
-                        : 'text-white/60 hover:text-white/80 hover:bg-white/5'
-                      }
-                    `}
-                  >
-                    <Palette className="w-4 h-4 mr-2" />
-                    Royal Talens
-                    {royalTalensStatus === 'approved' && (
-                      <CheckCircle className="w-4 h-4 ml-auto text-green-400" />
-                    )}
-                    {royalTalensStatus === 'pending' && (
-                      <Clock className="w-4 h-4 ml-auto text-yellow-400" />
-                    )}
-                    {royalTalensStatus === 'denied' && (
-                      <XCircle className="w-4 h-4 ml-auto text-red-400" />
-                    )}
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setActiveTab('sales-dremababy');
-                    }}
-                    className={`
-                      w-full flex items-center px-3 py-2 rounded-lg text-left text-sm
-                      ${activeTab === 'sales-dremababy'
-                        ? 'bg-blue-500/20 text-blue-300' 
-                        : 'text-white/60 hover:text-white/80 hover:bg-white/5'
-                      }
-                    `}
-                  >
-                    <Baby className="w-4 h-4 mr-2" />
-                    Dreambaby
-                    {dreambabyStatus === 'approved' && (
-                      <CheckCircle className="w-4 h-4 ml-auto text-green-400" />
-                    )}
-                    {dreambabyStatus === 'pending' && (
-                      <Clock className="w-4 h-4 ml-auto text-yellow-400" />
-                    )}
-                    {dreambabyStatus === 'denied' && (
-                      <XCircle className="w-4 h-4 ml-auto text-red-400" />
-                    )}
-                  </button>
                   {/* Sub-sub: Upsell invoice for Dreambaby */}
                   {(() => {
                     try {
@@ -441,7 +633,7 @@ const Sidebar = ({ activeTab, setActiveTab }) => {
                       <div className="ml-6 mt-1">
                         <button
                           onClick={(e) => { e.stopPropagation(); setActiveTab('sales-dremababy'); }}
-                          className={`w-full flex items-center px-3 py-2 rounded-lg text-left text-xs ${activeTab === 'sales-dremababy' ? 'bg-blue-500/10 text-blue-300' : 'text-white/60 hover:text-white/80 hover:bg-white/5'}`}
+                          className={`w-full flex items-center px-3 py-2 rounded-lg text-left text-xs ${activeTab === 'sales-dremababy' ? 'bg-gradient-to-r from-pink-500/10 to-purple-500/10 text-pink-300' : 'text-white/60 hover:text-white/80 hover:bg-white/5'}`}
                         >
                           <ArrowUp className="w-3 h-3 mr-2" /> Upsell invoice
                         </button>
@@ -463,7 +655,7 @@ const Sidebar = ({ activeTab, setActiveTab }) => {
                         className={`
                           w-full flex items-center px-3 py-2 rounded-lg text-left text-sm
                           ${activeTab === client.tabId
-                            ? 'bg-blue-500/20 text-blue-300' 
+                            ? 'bg-gradient-to-r from-pink-500/20 to-purple-500/20 text-pink-300' 
                             : 'text-white/60 hover:text-white/80 hover:bg-white/5'
                           }
                         `}
@@ -496,7 +688,7 @@ const Sidebar = ({ activeTab, setActiveTab }) => {
                     className={`
                       w-full flex items-center px-3 py-2 rounded-lg text-left text-sm
                       ${activeTab === 'branding-meteor'
-                        ? 'bg-blue-500/20 text-blue-300' 
+                        ? 'bg-gradient-to-r from-pink-500/20 to-purple-500/20 text-pink-300' 
                         : 'text-white/60 hover:text-white/80 hover:bg-white/5'
                       }
                     `}
@@ -523,7 +715,7 @@ const Sidebar = ({ activeTab, setActiveTab }) => {
                     className={`
                       w-full flex items-center px-3 py-2 rounded-lg text-left text-sm
                       ${activeTab === 'branding-templates'
-                        ? 'bg-blue-500/20 text-blue-300' 
+                        ? 'bg-gradient-to-r from-pink-500/20 to-purple-500/20 text-pink-300' 
                         : 'text-white/60 hover:text-white/80 hover:bg-white/5'
                       }
                     `}
@@ -671,7 +863,7 @@ const Sidebar = ({ activeTab, setActiveTab }) => {
                           <Clock className="w-4 h-4 ml-auto text-yellow-400" />
                         )}
                         {project.status === 'completed' && (
-                          <XCircle className="w-4 h-4 ml-auto text-blue-400" />
+                          <XCircle className="w-4 h-4 ml-auto text-purple-400" />
                         )}
                       </button>
                     );
@@ -683,51 +875,121 @@ const Sidebar = ({ activeTab, setActiveTab }) => {
         })}
       </nav>
 
-      {/* Separator */}
+      {/* Other Section removed at user's request */}
+      {/* Single separator before Quick Links */}
       <div className="border-t border-white/10 my-6"></div>
 
-      {/* Other Section */}
+      {/* Quick Links Section */}
       <div>
-        <h3 className="text-white/60 text-sm font-medium mb-4 px-4">Andere</h3>
-        <div className="space-y-2">
-          {otherItems.map((item, index) => {
-            const Icon = typeof item.icon === 'function' ? item.icon : HelpCircle;
-            const isActive = activeTab === item.id;
-            
-            // Check if item is disabled in dev mode
-            const isDisabled = isDevMode && disabledItems.includes(item.id);
-
-            // In dev mode, completely hide disabled items from the sidebar
-            if (isDisabled) {
-              return null;
-            }
-            
-            const handleClick = () => {
-              if (item.external) {
-                window.open(item.url, '_blank', 'noopener,noreferrer');
-              } else {
-                setActiveTab(item.id);
-              }
-            };
-
-            return (
-              <button
-                key={item.id}
-                onClick={handleClick}
-                className={`
-                  w-full flex items-center px-4 py-3 rounded-lg text-left nav-item
-                  ${isActive 
-                    ? 'nav-item-active text-white' 
-                    : 'text-white/80 hover:text-white'
-                  }
-                `}
-              >
-                <Icon className="w-5 h-5 mr-3" />
-                <span className="font-medium">{item.label}</span>
-              </button>
-            );
-          })}
+        <div className="flex items-center justify-between mb-4 px-4">
+          <h3 className="text-white/60 text-sm font-medium">Quick Links</h3>
+          <button
+            onClick={() => setShowAddQuickLinkModal(true)}
+            className="text-white/60 hover:text-white text-xs"
+          >
+            + Toevoegen
+          </button>
         </div>
+        <div className="space-y-2">
+          {customQuickLinks.length === 0 ? (
+            <div className="text-white/50 text-center py-8 px-4 text-sm">
+              Geen quick links. Klik "+ Toevoegen" om te beginnen.
+            </div>
+          ) : (
+            customQuickLinks.map((link) => {
+            const Icon = iconComponents[link.icon] || Globe;
+            
+            return (
+              <div key={link.id} className="group relative">
+                <button
+                  onClick={() => window.open(link.url, '_blank', 'noopener,noreferrer')}
+                  className="w-full flex items-center px-4 py-3 rounded-lg text-left nav-item text-white/80 hover:text-white"
+                >
+                  <Icon className="w-5 h-5 mr-3" />
+                  <span className="font-medium">{link.label}</span>
+                  <svg className="w-3 h-3 ml-auto text-white/40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteQuickLink(link.id);
+                  }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-300 transition-opacity"
+                >
+                  <XCircle className="w-4 h-4" />
+                </button>
+              </div>
+            );
+          })
+          )}
+        </div>
+      </div>
+
+      {/* Add Quick Link Modal */}
+      {showAddQuickLinkModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="gradient-card rounded-xl p-6 w-full max-w-md">
+            <h3 className="text-white text-xl font-semibold mb-4">Quick Link Toevoegen</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-white/70 text-sm mb-1">Label</label>
+                <input
+                  type="text"
+                  value={newQuickLink.label}
+                  onChange={(e) => setNewQuickLink({...newQuickLink, label: e.target.value})}
+                  className="w-full input-plain rounded-lg px-3 py-2"
+                  placeholder="Bijv. GitHub"
+                />
+              </div>
+              <div>
+                <label className="block text-white/70 text-sm mb-1">URL</label>
+                <input
+                  type="url"
+                  value={newQuickLink.url}
+                  onChange={(e) => setNewQuickLink({...newQuickLink, url: e.target.value})}
+                  className="w-full input-plain rounded-lg px-3 py-2"
+                  placeholder="https://..."
+                />
+              </div>
+              <div>
+                <label className="block text-white/70 text-sm mb-1">Icoon</label>
+                <select
+                  value={newQuickLink.icon}
+                  onChange={(e) => setNewQuickLink({...newQuickLink, icon: e.target.value})}
+                  className="w-full input-plain rounded-lg px-3 py-2"
+                >
+                  <option value="Globe">Globe</option>
+                  <option value="User">User</option>
+                  <option value="Building">Building</option>
+                  <option value="Store">Store</option>
+                  <option value="Briefcase">Briefcase</option>
+                  <option value="Zap">Zap</option>
+                  <option value="Heart">Heart</option>
+                  <option value="Star">Star</option>
+                  <option value="Rocket">Rocket</option>
+                  <option value="Shield">Shield</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex justify-end space-x-3 mt-6">
+              <button 
+                onClick={() => { 
+                  setShowAddQuickLinkModal(false); 
+                  setNewQuickLink({ label: '', url: '', icon: 'Globe' }); 
+                }} 
+                className="glass-effect px-4 py-2 rounded-lg text-white"
+              >
+                Annuleren
+              </button>
+              <button onClick={addQuickLink} className="btn-primary px-4 py-2 rounded-lg text-white">
+                Toevoegen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       </div>
     </div>
   );

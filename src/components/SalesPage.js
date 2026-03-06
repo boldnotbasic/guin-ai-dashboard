@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Calculator, FileText, Download, Trash2, X, Ticket, Lock, Unlock, CheckCircle, Clock, XCircle, Plus, User, Building, Store, Briefcase, Zap, Heart, Star, Rocket, Globe, Shield, Send } from 'lucide-react';
+import TabQuickLinks from './TabQuickLinks';
 
 const SalesPage = () => {
   const defaultProjectData = [
@@ -426,6 +427,9 @@ const SalesPage = () => {
 
   return (
     <div className="space-y-6">
+      {/* Tab Quick Links */}
+      <TabQuickLinks tabName="Sales" />
+      
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

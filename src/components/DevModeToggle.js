@@ -21,20 +21,15 @@ const DevModeToggle = () => {
     { id: 'learning', label: 'Learning', icon: Activity, category: 'Hoofdmenu' },
     { id: 'branding', label: 'Branding', icon: Brush, category: 'Hoofdmenu' },
     { id: 'projecten', label: 'Projecten', icon: Folder, category: 'Hoofdmenu' },
-    { id: 'themes', label: 'Themes', icon: Palette, category: 'Hoofdmenu' },
-    { id: 'apps', label: 'Apps', icon: LayoutGrid, category: 'Hoofdmenu' },
-    { id: 'faq-clients', label: 'FAQ clients', icon: HelpCircle, category: 'Hoofdmenu' },
-    { id: 'users', label: 'Users', icon: UsersRound, category: 'Hoofdmenu' },
-    { id: 'logging', label: 'Logging', icon: Clock, category: 'Hoofdmenu' },
     { id: 'settings', label: 'Settings', icon: Wrench, category: 'Hoofdmenu' },
-    // Andere items
-    { id: 'quiz', label: 'Quiz', icon: HelpCircle, category: 'Andere' },
-    { id: 'store', label: 'Meteor Merch store', icon: Store, category: 'Andere' },
-    { id: 'github', label: 'GitHub', icon: Folder, category: 'Andere' },
-    { id: 'confluence', label: 'Confluence', icon: Folder, category: 'Andere' },
-    { id: 'jira', label: 'Jira', icon: Wrench, category: 'Andere' },
-    { id: 'shopify-partner', label: 'Shopify Partner Portal', icon: Store, category: 'Andere' },
-    { id: 'share-a-thon', label: 'Share-a-Thon', icon: DollarSign, category: 'Andere' },
+    // Alle tabs items
+    { id: 'quiz', label: 'Quiz', icon: HelpCircle, category: 'Alle tabs' },
+    { id: 'store', label: 'Meteor Merch store', icon: Store, category: 'Alle tabs' },
+    { id: 'github', label: 'GitHub', icon: Folder, category: 'Alle tabs' },
+    { id: 'confluence', label: 'Confluence', icon: Folder, category: 'Alle tabs' },
+    { id: 'jira', label: 'Jira', icon: Wrench, category: 'Alle tabs' },
+    { id: 'shopify-partner', label: 'Shopify Partner Portal', icon: Store, category: 'Alle tabs' },
+    { id: 'share-a-thon', label: 'Share-a-Thon', icon: DollarSign, category: 'Alle tabs' },
   ];
 
   useEffect(() => {

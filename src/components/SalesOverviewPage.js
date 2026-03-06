@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Calculator, Palette, Baby, TrendingUp, Clock, Euro, Users, BarChart3, Plus, CheckCircle, X, User, Building, Store, Briefcase, Zap, Heart, Star, Rocket, Globe, Shield, XCircle } from 'lucide-react';
+import { Calculator, TrendingUp, Clock, Euro, Users, BarChart3, Plus, CheckCircle, X, User, Building, Store, Briefcase, Zap, Heart, Star, Rocket, Globe, Shield, XCircle } from 'lucide-react';
 
 const SalesOverviewPage = ({ setActiveTab }) => {
   // Available icons for client selection
@@ -81,42 +81,16 @@ const SalesOverviewPage = ({ setActiveTab }) => {
       },
       features: ['Flexibele taken', 'Custom tarieven', 'CSV export', 'Jira integratie'],
       status: 'active'
-    },
-    {
-      id: 'sales-royal-talens',
-      title: 'Royal Talens B2B',
-      description: 'Professionele kunstbenodigdheden B2B platform',
-      icon: Palette,
-      color: 'from-orange-500 to-red-600',
-      stats: {
-        rate: '€125/uur',
-        avgHours: '52h',
-        projects: '3'
-      },
-      features: ['Color Matching Tool', 'Bulk Calculator', 'Artist Portfolio', 'Inventory Dashboard'],
-      status: 'active'
-    },
-    {
-      id: 'sales-dremababy',
-      title: 'Dreambaby',
-      description: 'Baby verzorging en ontwikkeling platform',
-      icon: Baby,
-      color: 'from-pink-500 to-purple-600',
-      stats: {
-        rate: '€125/uur',
-        avgHours: '50h',
-        projects: '2'
-      },
-      features: ['Growth Tracker', 'Sleep Tracker', 'Photo Memory', 'Pediatrician Integration'],
-      status: 'active'
     }
   ];
 
+  const visibleSalesProjects = salesProjects;
+
   const totalStats = {
-    totalProjects: salesProjects.reduce((sum, project) => sum + parseInt(project.stats.projects), 0),
+    totalProjects: visibleSalesProjects.reduce((sum, project) => sum + parseInt(project.stats.projects), 0),
     avgRate: '€125',
-    totalHours: salesProjects.reduce((sum, project) => sum + parseInt(project.stats.avgHours), 0),
-    revenue: '€' + (salesProjects.reduce((sum, project) => sum + (parseInt(project.stats.avgHours) * 125), 0)).toLocaleString()
+    totalHours: visibleSalesProjects.reduce((sum, project) => sum + parseInt(project.stats.avgHours), 0),
+    revenue: '€' + (visibleSalesProjects.reduce((sum, project) => sum + (parseInt(project.stats.avgHours) * 125), 0)).toLocaleString()
   };
 
   const handleProjectClick = (projectId) => {
@@ -258,7 +232,7 @@ const SalesOverviewPage = ({ setActiveTab }) => {
 
       {/* Sales Projects Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {salesProjects.map((project) => {
+        {visibleSalesProjects.map((project) => {
           const Icon = project.icon;
           return (
             <div 
@@ -456,26 +430,6 @@ const SalesOverviewPage = ({ setActiveTab }) => {
             <div className="text-left">
               <p className="text-white font-medium">Nieuwe Algemene Offerte</p>
               <p className="text-white/60 text-sm">Start met basis calculator</p>
-            </div>
-          </button>
-          <button 
-            onClick={() => handleProjectClick('sales-royal-talens')}
-            className="flex items-center space-x-3 p-4 bg-white/5 hover:bg-white/10 rounded-lg transition-colors group"
-          >
-            <Palette className="w-6 h-6 text-orange-300 group-hover:text-orange-200" />
-            <div className="text-left">
-              <p className="text-white font-medium">Royal Talens Offerte</p>
-              <p className="text-white/60 text-sm">B2B kunstbenodigdheden</p>
-            </div>
-          </button>
-          <button 
-            onClick={() => handleProjectClick('sales-dremababy')}
-            className="flex items-center space-x-3 p-4 bg-white/5 hover:bg-white/10 rounded-lg transition-colors group"
-          >
-            <Baby className="w-6 h-6 text-pink-300 group-hover:text-pink-200" />
-            <div className="text-left">
-              <p className="text-white font-medium">Dreambaby Offerte</p>
-              <p className="text-white/60 text-sm">Baby platform ontwikkeling</p>
             </div>
           </button>
         </div>

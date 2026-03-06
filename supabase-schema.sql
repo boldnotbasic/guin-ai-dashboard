@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   email TEXT UNIQUE NOT NULL,
   full_name TEXT,
   avatar_url TEXT,
+  logo_bijberoep TEXT,
   role TEXT DEFAULT 'user', -- 'admin', 'user', 'viewer'
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -101,6 +102,23 @@ CREATE TABLE IF NOT EXISTS projects (
 -- Backfill migrations for existing databases
 ALTER TABLE themes ADD COLUMN IF NOT EXISTS validation_documentation TEXT;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS logo TEXT;
+
+-- =============================================
+-- PROJECT TILES TABLE
+-- =============================================
+CREATE TABLE IF NOT EXISTS project_tiles (
+  id BIGSERIAL PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  project_id BIGINT REFERENCES projects(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  description TEXT,
+  url TEXT,
+  image_url TEXT,
+  is_external BOOLEAN DEFAULT false,
+  order_index INTEGER DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
 
 -- =============================================
 -- BRANDING RESOURCES TABLE
@@ -340,6 +358,170 @@ CREATE TRIGGER update_faqs_updated_at BEFORE UPDATE ON faqs
 
 CREATE TRIGGER update_upsells_updated_at BEFORE UPDATE ON upsells
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- =============================================
+-- AQUARIUM TABLES (Privé)
+-- =============================================
+CREATE TABLE IF NOT EXISTS aquarium_cleaning_logs (
+  id BIGSERIAL PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  date TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  type TEXT DEFAULT 'cleaning',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS aquarium_notes (
+  id BIGSERIAL PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  content TEXT NOT NULL,
+  date TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- =============================================
+-- CRAB CAVE TABLES (Privé)
+-- =============================================
+CREATE TABLE IF NOT EXISTS crab_cave_products (
+  id BIGSERIAL PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  emoji TEXT DEFAULT '🍺',
+  image_url TEXT, -- URL to uploaded image in Supabase Storage
+  price DECIMAL(10,2) NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS crab_cave_people (
+  id BIGSERIAL PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS crab_cave_orders (
+  id BIGSERIAL PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  person_id BIGINT REFERENCES crab_cave_people(id) ON DELETE CASCADE,
+  product_id BIGINT REFERENCES crab_cave_products(id) ON DELETE CASCADE,
+  product_name TEXT NOT NULL,
+  product_emoji TEXT,
+  product_image_url TEXT,
+  price DECIMAL(10,2) NOT NULL,
+  order_id BIGINT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- =============================================
+-- QUICK LINKS TABLE (Privé)
+-- =============================================
+CREATE TABLE IF NOT EXISTS quick_links (
+  id BIGSERIAL PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  label TEXT NOT NULL,
+  url TEXT NOT NULL,
+  icon TEXT DEFAULT 'Globe',
+  external BOOLEAN DEFAULT true,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Backfill migration: allow separate quick links per platform (Privé/Bijberoep)
+ALTER TABLE quick_links ADD COLUMN IF NOT EXISTS platform TEXT;
+
+-- =============================================
+-- 2DO TICKETS TABLE (Privé)
+-- =============================================
+CREATE TABLE IF NOT EXISTS todo_tickets (
+  id BIGSERIAL PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  description TEXT,
+  status TEXT NOT NULL DEFAULT 'tostart', -- 'tostart', 'doing', 'done'
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- =============================================
+-- BELEGGEN INVESTMENTS TABLE (Privé)
+-- =============================================
+CREATE TABLE IF NOT EXISTS investments (
+  id BIGSERIAL PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL DEFAULT 'aandeel', -- 'aandeel', 'etf'
+  amount DECIMAL(10,2) NOT NULL,
+  ticker_symbol TEXT, -- Stock ticker symbol (e.g., AAPL, MSFT)
+  shares DECIMAL(10,4), -- Number of shares owned
+  purchase_price DECIMAL(10,2), -- Price per share at purchase
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS investment_links (
+  id BIGSERIAL PRIMARY KEY,
+  investment_id BIGINT REFERENCES investments(id) ON DELETE CASCADE,
+  label TEXT NOT NULL,
+  url TEXT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- =============================================
+-- PROSPECTS TABLE (Bijberoep)
+-- =============================================
+CREATE TABLE IF NOT EXISTS prospects (
+  id BIGSERIAL PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  address TEXT NOT NULL,
+  phone TEXT,
+  email TEXT,
+  website TEXT,
+  contacted BOOLEAN DEFAULT false,
+  likelihood TEXT DEFAULT 'medium', -- 'low', 'medium', 'high'
+  notes TEXT,
+  latitude DECIMAL(10,8),
+  longitude DECIMAL(11,8),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- =============================================
+-- TAB QUICK LINKS TABLE (per hoofdtab)
+-- =============================================
+CREATE TABLE IF NOT EXISTS tab_quick_links (
+  id BIGSERIAL PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  tab_name TEXT NOT NULL, -- 'Home', 'Sales', 'Projects', 'SEO', etc.
+  label TEXT NOT NULL,
+  url TEXT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- =============================================
+-- AQUARIUM FISH TABLE (vissen en wezens)
+-- =============================================
+CREATE TABLE IF NOT EXISTS aquarium_fish (
+  id BIGSERIAL PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  species TEXT NOT NULL,
+  quantity INTEGER DEFAULT 1,
+  notes TEXT,
+  image_url TEXT, -- URL to uploaded image
+  added_date TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- =============================================
+-- IDEAS TABLE (Idea Center)
+-- =============================================
+CREATE TABLE IF NOT EXISTS ideas (
+  id BIGSERIAL PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  description TEXT,
+  logo_url TEXT,
+  local_folder_path TEXT,
+  photos TEXT[], -- Array of photo URLs
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
 
 -- =============================================
 -- STORAGE BUCKET voor branding assets

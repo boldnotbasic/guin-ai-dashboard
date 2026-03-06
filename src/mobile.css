@@ -1,0 +1,123 @@
+/* Mobile Responsive Utilities */
+
+/* Touch-friendly tap targets - minimum 44px */
+@media (max-width: 1024px) {
+  button, a, input[type="button"], input[type="submit"] {
+    min-height: 48px !important;
+    min-width: 48px;
+  }
+  
+  /* Larger icons on mobile */
+  .nav-item svg,
+  button svg:not(.w-3):not(.w-4) {
+    width: 24px !important;
+    height: 24px !important;
+  }
+  
+  /* Better spacing for buttons on mobile */
+  .nav-item {
+    padding: 14px 16px !important;
+  }
+  
+  /* Larger header icons */
+  header button svg {
+    width: 24px !important;
+    height: 24px !important;
+  }
+}
+
+/* Modal improvements for mobile */
+@media (max-width: 768px) {
+  /* Full screen modals on mobile */
+  .modal-wrapper {
+    padding: 0 !important;
+  }
+  
+  .modal-content {
+    max-width: 100% !important;
+    max-height: 100vh !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+  }
+  
+  /* Scrollable modal content */
+  .modal-body {
+    max-height: calc(100vh - 120px);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* Form inputs - larger on mobile */
+@media (max-width: 768px) {
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="number"],
+  input[type="tel"],
+  input[type="url"],
+  textarea,
+  select {
+    font-size: 16px !important; /* Prevents zoom on iOS */
+    padding: 12px !important;
+  }
+}
+
+/* Grid responsiveness */
+@media (max-width: 640px) {
+  .grid-cols-2 {
+    grid-template-columns: repeat(1, minmax(0, 1fr)) !important;
+  }
+  
+  .grid-cols-3 {
+    grid-template-columns: repeat(1, minmax(0, 1fr)) !important;
+  }
+}
+
+/* Better spacing on mobile */
+@media (max-width: 768px) {
+  .space-y-8 > * + * {
+    margin-top: 1.5rem !important;
+  }
+  
+  .gap-6 {
+    gap: 1rem !important;
+  }
+}
+
+/* Prevent text selection on buttons */
+button, .btn, [role="button"] {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Safe area insets for notched devices */
+@supports (padding: max(0px)) {
+  body {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* Prevent horizontal scroll */
+body, html {
+  overflow-x: hidden;
+  width: 100%;
+  position: relative;
+}
+
+/* Better focus states for accessibility */
+@media (max-width: 1024px) {
+  *:focus-visible {
+    outline: 2px solid rgba(59, 130, 246, 0.5);
+    outline-offset: 2px;
+  }
+}

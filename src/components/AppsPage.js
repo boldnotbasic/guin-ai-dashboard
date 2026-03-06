@@ -888,7 +888,7 @@ const AppsPage = () => {
                       <img 
                         src={app.image} 
                         alt={app.name}
-                        className="w-full h-full object-cover"
+                        className="w-full h-full object-contain bg-white/5"
                         onLoad={() => console.log('Image loaded successfully:', app.image)}
                         onError={(e) => {
                           console.log('Image failed to load:', app.image);

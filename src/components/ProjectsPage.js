@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Calendar, Users, Clock, X, Edit, Trash2, Copy, Check, ExternalLink, FileText, Palette, Baby, Store, Globe, BookOpen, Briefcase, Rocket, User, Building, Star, Heart, Shield, Zap } from 'lucide-react';
+import { Plus, Calendar, Users, Clock, X, Edit, Trash2, Copy, Check, ExternalLink, FileText, Palette, Baby, Store, Globe, BookOpen, Briefcase, Rocket, User, Building, Star, Heart, Shield, Zap, Link } from 'lucide-react';
 import { db } from '../utils/supabaseClient';
+import ProjectAgenda from './ProjectAgenda';
+import TabQuickLinks from './TabQuickLinks';
 
 const ProjectsPage = ({ setSelectedProject, setActiveTab }) => {
   // SEO Score Circle Component
@@ -110,6 +112,16 @@ const ProjectsPage = ({ setSelectedProject, setActiveTab }) => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [projectToDelete, setProjectToDelete] = useState(null);
   const [copiedTmsCode, setCopiedTmsCode] = useState(null);
+  
+  // Upcoming tasks state
+  const [upcomingTasks, setUpcomingTasks] = useState([]);
+
+  // Parse YYYY-MM-DD as a local date (avoid UTC shift)
+  const parseLocalDate = (str) => {
+    const [y, m, d] = (str || '').split('-').map(Number);
+    if (!y || !m || !d) return new Date(NaN);
+    return new Date(y, m - 1, d);
+  };
   const [newProject, setNewProject] = useState({
     name: '',
     client: '',
@@ -118,6 +130,7 @@ const ProjectsPage = ({ setSelectedProject, setActiveTab }) => {
     deadline: '',
     team: '',
     logo: '',
+    logo_bg_color: '#FFFFFF',
     icon: '',
     iconColor: '',
     tmsCode: '',
@@ -146,6 +159,7 @@ const ProjectsPage = ({ setSelectedProject, setActiveTab }) => {
       description: p.description || null,
       url: p.shopDomain || p.url || null,
       logo: p.logo || null,
+      logo_bg_color: p.logo_bg_color || null,
       icon: p.icon || null,
       color: p.iconColor || p.color || null,
       team_size: teamArr.length,
@@ -168,6 +182,7 @@ const ProjectsPage = ({ setSelectedProject, setActiveTab }) => {
       deadline: row.deadline || '',
       team,
       logo: row.logo || '',
+      logo_bg_color: row.logo_bg_color || '#FFFFFF',
       icon: row.icon || '',
       iconColor: row.color || '',
       tmsCode,
@@ -203,6 +218,9 @@ const ProjectsPage = ({ setSelectedProject, setActiveTab }) => {
             window.dispatchEvent(new Event('localStorageUpdate'));
           } catch (_) {}
         }
+        
+        // Load upcoming tasks
+        await loadUpcomingTasks();
       } catch (e) {
         console.error('Load projects failed:', e);
         setProjects(defaultProjects);
@@ -212,6 +230,33 @@ const ProjectsPage = ({ setSelectedProject, setActiveTab }) => {
     };
     load();
   }, []);
+
+  const loadUpcomingTasks = async () => {
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0); // Start of today
+      const futureDate = new Date();
+      futureDate.setDate(today.getDate() + 30); // Next 30 days
+      
+      const tasks = await db.projectTasks.getByDateRange(
+        today.toISOString().split('T')[0],
+        futureDate.toISOString().split('T')[0]
+      );
+      
+      // Filter out tasks with status 'done' and sort by due date, take first 4
+
+      const filtered = (tasks || [])
+        .filter(task => task.status !== 'done')
+        .sort((a, b) => {
+          return parseLocalDate(a.due_date) - parseLocalDate(b.due_date);
+        })
+        .slice(0, 4);
+      
+      setUpcomingTasks(filtered);
+    } catch (error) {
+      console.error('Error loading upcoming tasks:', error);
+    }
+  };
 
   const addProject = async () => {
     if (newProject.name && newProject.client && newProject.deadline) {
@@ -275,7 +320,8 @@ const ProjectsPage = ({ setSelectedProject, setActiveTab }) => {
       tmsCode: '',
       description: '',
       budget: '',
-      shopDomain: ''
+      shopDomain: '',
+      logo_bg_color: '#FFFFFF'
     });
     setShowAddForm(false);
     setEditingProject(null);
@@ -354,14 +400,6 @@ const ProjectsPage = ({ setSelectedProject, setActiveTab }) => {
           <p className="text-white/70">Overzicht van alle actieve projecten</p>
         </div>
         <div className="flex items-center space-x-4">
-          <button
-            onClick={() => window.open('https://partners.shopify.com/1841109/stores', '_blank')}
-            className="glass-effect px-6 py-3 rounded-lg text-white font-medium flex items-center space-x-2 hover:bg-white/20 transition-all"
-          >
-            <Globe className="w-5 h-5" />
-            <span>Partner Portal</span>
-            <ExternalLink className="w-4 h-4" />
-          </button>
           <button 
             onClick={() => setShowAddForm(true)}
             className="btn-primary px-6 py-3 rounded-lg text-white font-medium flex items-center space-x-2"
@@ -372,22 +410,23 @@ const ProjectsPage = ({ setSelectedProject, setActiveTab }) => {
         </div>
       </div>
 
-      {/* Add/Edit Project Form */}
+      {/* Add/Edit Project Form Modal */}
       {showAddForm && (
-        <div className="gradient-card rounded-xl p-6">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-white text-xl font-semibold">
-              {editingProject ? 'Project Bewerken' : 'Nieuw Project Toevoegen'}
-            </h2>
-            <button 
-              onClick={resetForm}
-              className="text-white/70 hover:text-white"
-            >
-              <X className="w-6 h-6" />
-            </button>
-          </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="gradient-card rounded-xl p-6 w-full max-w-3xl my-8">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-white text-xl font-semibold">
+                {editingProject ? 'Project Bewerken' : 'Nieuw Project Toevoegen'}
+              </h2>
+              <button 
+                onClick={resetForm}
+                className="text-white/70 hover:text-white"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
             <div>
               <label className="block text-white/70 text-sm mb-2">Project Naam</label>
               <input
@@ -409,39 +448,13 @@ const ProjectsPage = ({ setSelectedProject, setActiveTab }) => {
               />
             </div>
             <div>
-              <label className="block text-white/70 text-sm mb-2">Shopify omgeving</label>
+              <label className="block text-white/70 text-sm mb-2">Website</label>
               <input
-                type="text"
+                type="url"
                 value={newProject.shopDomain}
                 onChange={(e) => setNewProject({...newProject, shopDomain: e.target.value})}
-                onBlur={(e) => {
-                  const v = (e.target.value || '').trim();
-                  if (!v) return;
-                  const normalized = v.endsWith('.myshopify.com') ? v : `${v.replace(/\.$/, '')}.myshopify.com`;
-                  setNewProject({...newProject, shopDomain: normalized.toLowerCase()});
-                }}
                 className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-400"
-                placeholder="bijv. royal-talens-b2b.myshopify.com"
-              />
-            </div>
-            <div>
-              <label className="block text-white/70 text-sm mb-2">TMS Code</label>
-              <input
-                type="text"
-                value={newProject.tmsCode}
-                onChange={(e) => setNewProject({...newProject, tmsCode: e.target.value})}
-                className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-400"
-                placeholder="TMS-001"
-              />
-            </div>
-            <div>
-              <label className="block text-white/70 text-sm mb-2">Budget</label>
-              <input
-                type="text"
-                value={newProject.budget}
-                onChange={(e) => setNewProject({...newProject, budget: e.target.value})}
-                className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-400"
-                placeholder="€15,000"
+                placeholder="https://example.com"
               />
             </div>
             <div>
@@ -456,17 +469,6 @@ const ProjectsPage = ({ setSelectedProject, setActiveTab }) => {
                 <option value="Completed" className="bg-gray-800">Completed</option>
                 <option value="On Hold" className="bg-gray-800">On Hold</option>
               </select>
-            </div>
-            <div>
-              <label className="block text-white/70 text-sm mb-2">Progress (%)</label>
-              <input
-                type="number"
-                min="0"
-                max="100"
-                value={newProject.progress}
-                onChange={(e) => setNewProject({...newProject, progress: e.target.value})}
-                className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-400"
-              />
             </div>
             <div>
               <label className="block text-white/70 text-sm mb-2">Deadline</label>
@@ -487,16 +489,28 @@ const ProjectsPage = ({ setSelectedProject, setActiveTab }) => {
                 placeholder="https://example.com/logo.jpg"
               />
             </div>
-            <div className="md:col-span-2">
-              <label className="block text-white/70 text-sm mb-2">Team (gescheiden door komma's)</label>
-              <input
-                type="text"
-                value={newProject.team}
-                onChange={(e) => setNewProject({...newProject, team: e.target.value})}
-                className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-400"
-                placeholder="John, Sarah, Mike"
-              />
-            </div>
+
+            {/* Logo Background Color */}
+            {newProject.logo && (
+              <div>
+                <label className="block text-white/70 text-sm mb-2">Logo Achtergrondkleur</label>
+                <div className="flex items-center space-x-3">
+                  <input
+                    type="color"
+                    value={newProject.logo_bg_color}
+                    onChange={(e) => setNewProject({...newProject, logo_bg_color: e.target.value})}
+                    className="w-16 h-10 rounded border border-white/20 cursor-pointer bg-transparent"
+                  />
+                  <input
+                    type="text"
+                    value={newProject.logo_bg_color}
+                    onChange={(e) => setNewProject({...newProject, logo_bg_color: e.target.value})}
+                    placeholder="#FFFFFF"
+                    className="flex-1 px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/40 focus:outline-none focus:border-blue-400 font-mono text-sm"
+                  />
+                </div>
+              </div>
+            )}
             <div className="md:col-span-2">
               <label className="block text-white/70 text-sm mb-2">Beschrijving</label>
               <textarea
@@ -551,6 +565,7 @@ const ProjectsPage = ({ setSelectedProject, setActiveTab }) => {
               Annuleren
             </button>
           </div>
+          </div>
         </div>
       )}
 
@@ -595,132 +610,221 @@ const ProjectsPage = ({ setSelectedProject, setActiveTab }) => {
         </div>
       )}
 
-      {/* Offertes Section */}
-      <div className="gradient-card rounded-xl p-6">
-        <h2 className="text-white text-xl font-semibold mb-4 flex items-center space-x-2">
-          <FileText className="w-6 h-6 text-blue-300" />
-          <span>Gemaakte Offertes</span>
-        </h2>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Royal Talens B2B Offerte */}
-          <div className="bg-white/5 rounded-lg p-4 hover:bg-white/10 transition-colors cursor-pointer"
-               onClick={() => setActiveTab && setActiveTab('sales-royal-talens')}>
-            <div className="flex items-center space-x-3 mb-3">
-              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center">
-                <span className="text-white font-bold text-sm">RT</span>
-              </div>
-              <div>
-                <h3 className="text-white font-semibold text-sm">Royal Talens B2B</h3>
-                <p className="text-white/60 text-xs">Kunstbenodigdheden platform</p>
-              </div>
-            </div>
-            
-            <div className="grid grid-cols-2 gap-2 text-xs mb-3">
-              <div>
-                <span className="text-white/50">Tarief:</span>
-                <span className="text-white ml-1">€125/uur</span>
-              </div>
-              <div>
-                <span className="text-white/50">Uren:</span>
-                <span className="text-white ml-1">52h</span>
-              </div>
-              <div>
-                <span className="text-white/50">Totaal:</span>
-                <span className="text-green-400 ml-1 font-semibold">€6.500</span>
-              </div>
-              <div>
-                <span className="text-white/50">Status:</span>
-                <span className="text-blue-300 ml-1">Actief</span>
-              </div>
-            </div>
-            
-            <div className="flex items-center justify-between">
-              <span className="text-white/40 text-xs">Klik om offerte te openen</span>
-              <ExternalLink className="w-4 h-4 text-white/40" />
-            </div>
-          </div>
+      {/* Quick Links Section */}
+      <TabQuickLinks tabName="projecten" />
 
-          {/* Dreambaby Offerte */}
-          <div className="bg-white/5 rounded-lg p-4 hover:bg-white/10 transition-colors cursor-pointer"
-               onClick={() => setActiveTab && setActiveTab('sales-dremababy')}>
-            <div className="flex items-center space-x-3 mb-3">
-              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-pink-500 to-purple-600 flex items-center justify-center">
-                <span className="text-white font-bold text-sm">DB</span>
-              </div>
-              <div>
-                <h3 className="text-white font-semibold text-sm">Dreambaby</h3>
-                <p className="text-white/60 text-xs">Baby verzorging platform</p>
-              </div>
-            </div>
-            
-            <div className="grid grid-cols-2 gap-2 text-xs mb-3">
-              <div>
-                <span className="text-white/50">Tarief:</span>
-                <span className="text-white ml-1">€125/uur</span>
-              </div>
-              <div>
-                <span className="text-white/50">Uren:</span>
-                <span className="text-white ml-1">50h</span>
-              </div>
-              <div>
-                <span className="text-white/50">Totaal:</span>
-                <span className="text-green-400 ml-1 font-semibold">€6.250</span>
-              </div>
-              <div>
-                <span className="text-white/50">Status:</span>
-                <span className="text-blue-300 ml-1">Actief</span>
-              </div>
-            </div>
-            
-            <div className="flex items-center justify-between">
-              <span className="text-white/40 text-xs">Klik om offerte te openen</span>
-              <ExternalLink className="w-4 h-4 text-white/40" />
-            </div>
+      {/* Upcoming Tasks Notification */}
+      {upcomingTasks.length > 0 && (
+        <div className="gradient-card rounded-xl p-6 border-l-4 border-blue-400">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-white text-xl font-semibold flex items-center space-x-2">
+              <Calendar className="w-6 h-6 text-blue-300" />
+              <span>Aankomende Taken</span>
+            </h2>
+            <span className="text-white/60 text-sm">{upcomingTasks.length} taken deze maand</span>
           </div>
-
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {upcomingTasks.map((task) => {
+              const project = projects.find(p => p.id === task.project_id);
+              const dueDate = parseLocalDate(task.due_date);
+              const today = new Date();
+              today.setHours(0, 0, 0, 0);
+              const dueLocal = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
+              const daysUntil = Math.ceil((dueLocal - today) / (1000 * 60 * 60 * 24));
+              
+              // Status badge styling
+              const getStatusBadge = (status) => {
+                switch(status) {
+                  case 'to_start':
+                    return { bg: 'bg-gray-500/20', text: 'text-gray-300', label: 'Te Starten' };
+                  case 'in_progress':
+                    return { bg: 'bg-blue-500/20', text: 'text-blue-300', label: 'Bezig' };
+                  case 'review':
+                    return { bg: 'bg-purple-500/20', text: 'text-purple-300', label: 'Review' };
+                  case 'blocked':
+                    return { bg: 'bg-red-500/20', text: 'text-red-300', label: 'Geblokkeerd' };
+                  default:
+                    return { bg: 'bg-gray-500/20', text: 'text-gray-300', label: status || 'Onbekend' };
+                }
+              };
+              
+              const statusBadge = getStatusBadge(task.status);
+              
+              return (
+                <div 
+                  key={task.id} 
+                  onClick={() => {
+                    if (project) {
+                      setSelectedProject(project.id);
+                    }
+                  }}
+                  className="bg-white/5 rounded-lg p-4 hover:bg-white/10 transition-colors border border-white/10 cursor-pointer hover:border-blue-400/50"
+                >
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex-1">
+                      <div className="flex items-center space-x-2 mb-1">
+                        <h3 className="text-white font-semibold text-sm">{task.title}</h3>
+                        <span className={`text-xs px-2 py-0.5 rounded ${statusBadge.bg} ${statusBadge.text}`}>
+                          {statusBadge.label}
+                        </span>
+                      </div>
+                      {project && (
+                        <div className="flex items-center space-x-2 mb-2">
+                          {project.logo ? (
+                            <div 
+                              className="w-6 h-6 rounded overflow-hidden"
+                              style={{ backgroundColor: project.logo_bg_color || '#FFFFFF' }}
+                            >
+                              <img 
+                                src={project.logo} 
+                                alt={project.name}
+                                className="w-full h-full object-contain"
+                              />
+                            </div>
+                          ) : (
+                            <div className={`w-6 h-6 rounded bg-gradient-to-br ${project.iconColor || 'from-blue-500 to-purple-600'} flex items-center justify-center text-xs`}>
+                              {project.icon && project.icon.charAt(0)}
+                            </div>
+                          )}
+                          <span className="text-white/60 text-xs">{project.name}</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="text-right ml-3">
+                      <div className={`text-xs font-semibold px-2 py-1 rounded ${
+                        daysUntil <= 1 ? 'bg-red-500/20 text-red-300' :
+                        daysUntil <= 3 ? 'bg-orange-500/20 text-orange-300' :
+                        'bg-blue-500/20 text-blue-300'
+                      }`}>
+                        {daysUntil === 0 ? 'Vandaag' :
+                         daysUntil === 1 ? 'Morgen' :
+                         `${daysUntil} dagen`}
+                      </div>
+                      <div className="text-white/40 text-xs mt-1">
+                        {dueDate.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })}
+                      </div>
+                    </div>
+                  </div>
+                  {task.description && (
+                    <p className="text-white/50 text-xs line-clamp-2">{task.description}</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
+
 
       {/* Projects Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {projects.map((project) => (
-          <div key={project.id} className="gradient-card rounded-xl p-6 hover:scale-105 transition-transform relative cursor-pointer overflow-hidden group">
-            {/* Background Gradient */}
-            <div className={`absolute inset-0 bg-gradient-to-br ${project.iconColor || 'from-blue-500 to-purple-600'} opacity-10 group-hover:opacity-20 transition-opacity z-0`}></div>
-            <div className="absolute top-4 right-4 flex space-x-2 z-10">
-              <button 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  startEdit(project);
-                }}
-                className="text-white/60 hover:text-white transition-colors"
-              >
-                <Edit className="w-4 h-4" />
-              </button>
-              <button 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  confirmDelete(project);
-                }}
-                className="text-red-400 hover:text-red-300 transition-colors"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
-            </div>
+          <div 
+            key={project.id} 
+            onClick={() => setSelectedProject(project.id)}
+            className="gradient-card rounded-xl overflow-hidden hover:scale-105 transition-transform relative cursor-pointer group"
+          >
+            {/* Website Preview Screenshot */}
+            {project.shopDomain && (
+              <div className="relative w-full h-40 bg-gradient-to-br from-gray-800 to-gray-900 overflow-hidden">
+                <img
+                  src={`https://api.microlink.io/?url=${encodeURIComponent(project.shopDomain)}&screenshot=true&meta=false&embed=screenshot.url`}
+                  alt={`${project.name} preview`}
+                  className="w-full h-full object-cover object-top opacity-70 group-hover:opacity-90 transition-opacity scale-105"
+                  loading="lazy"
+                  onError={(e) => {
+                    // Fallback to gradient if screenshot fails
+                    e.target.style.display = 'none';
+                  }}
+                />
+                <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-gray-900"></div>
+                <div className="absolute bottom-2 left-2 right-2">
+                  <div className="flex items-center space-x-2 text-white/80 text-xs">
+                    <Globe className="w-3 h-3" />
+                    <span className="truncate">{project.shopDomain?.replace(/^https?:\/\//, '')}</span>
+                  </div>
+                </div>
+              </div>
+            )}
             
-            <div onClick={() => setSelectedProject(project.id)} className="relative z-10">
+            <div className="p-6">
+              {/* Background Gradient */}
+              <div className={`absolute inset-0 bg-gradient-to-br ${project.iconColor || 'from-blue-500 to-purple-600'} opacity-10 group-hover:opacity-20 transition-opacity z-0`}></div>
+              <div className="absolute top-4 right-4 flex space-x-2 z-10">
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    startEdit(project);
+                  }}
+                  className="text-white/60 hover:text-white transition-colors"
+                >
+                  <Edit className="w-4 h-4" />
+                </button>
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    confirmDelete(project);
+                  }}
+                  className="text-red-400 hover:text-red-300 transition-colors"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+              
+              <div className="relative z-10">
               <div className="flex items-center mb-4">
                 <div className={`w-12 h-12 rounded-lg overflow-hidden mr-4 bg-gradient-to-br ${project.iconColor || 'bg-gradient-blue-purple'} flex items-center justify-center`}>
                   {project.logo ? (
-                    <img 
-                      src={project.logo} 
-                      alt={project.name}
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        e.target.style.display = 'none';
-                      }}
-                    />
+                    <div 
+                      className="w-full h-full overflow-hidden"
+                      style={{ backgroundColor: project.logo_bg_color || '#FFFFFF' }}
+                    >
+                      <img 
+                        src={project.logo} 
+                        alt={project.name}
+                        className="w-full h-full object-contain"
+                        onError={(e) => {
+                          e.target.style.display = 'none';
+                          const parent = e.target.parentElement;
+                          const fallback = parent.querySelector('.logo-fallback');
+                          if (fallback) fallback.style.display = 'flex';
+                        }}
+                      />
+                      <div className="logo-fallback w-full h-full flex items-center justify-center" style={{ display: 'none' }}>
+                        {project.icon ? (
+                          (() => {
+                            const key = String(project.icon).toLowerCase();
+                            const iconMap = {
+                              'palette': Palette,
+                              'baby': Baby,
+                              'store': Store,
+                              'briefcase': Briefcase,
+                              'rocket': Rocket,
+                              'user': User,
+                              'building': Building,
+                              'star': Star,
+                              'heart': Heart,
+                              'globe': Globe,
+                              'shield': Shield,
+                              'zap': Zap,
+                            };
+                            const IconComponent = iconMap[key];
+                            return IconComponent ? (
+                              <IconComponent className="w-6 h-6 text-white" />
+                            ) : (
+                              <span className="text-white font-bold text-sm">
+                                {project.name.substring(0, 2).toUpperCase()}
+                              </span>
+                            );
+                          })()
+                        ) : (
+                          <span className="text-white font-bold text-sm">
+                            {project.name.substring(0, 2).toUpperCase()}
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   ) : project.icon ? (
                     (() => {
                       const key = String(project.icon).toLowerCase();
@@ -759,17 +863,18 @@ const ProjectsPage = ({ setSelectedProject, setActiveTab }) => {
                     {project.shopDomain ? (
                       (() => {
                         const cleanDomain = String(project.shopDomain).replace(/^https?:\/\//, '');
-                        const href = `https://${cleanDomain}/admin`;
+                        const href = `https://${cleanDomain}`;
                         return (
                           <a
                             href={href}
                             target="_blank"
                             rel="noopener noreferrer"
                             onClick={(e) => e.stopPropagation()}
-                            className="text-white/70 text-sm hover:text-white underline decoration-dotted"
+                            className="text-white/70 text-sm hover:text-white underline decoration-dotted flex items-center space-x-1"
                             title={href}
                           >
-                            Store admin
+                            <Globe className="w-3 h-3" />
+                            <span>{cleanDomain}</span>
                           </a>
                         );
                       })()
@@ -783,103 +888,47 @@ const ProjectsPage = ({ setSelectedProject, setActiveTab }) => {
                 </div>
               </div>
               
-              {project.tmsCode && (
-                <div className="mb-2 flex items-center space-x-2">
-                  <span className="text-white/60 text-xs bg-white/10 px-2 py-1 rounded">
-                    {project.tmsCode}
-                  </span>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      copyTmsCode(project.tmsCode, project.id);
-                    }}
-                    className="text-white/60 hover:text-white transition-colors p-1"
-                    title="Kopieer TMS code"
-                  >
-                    {copiedTmsCode === project.id ? (
-                      <Check className="w-3 h-3 text-green-400" />
-                    ) : (
-                      <Copy className="w-3 h-3" />
-                    )}
-                  </button>
-                  {copiedTmsCode === project.id && (
-                    <span className="text-green-400 text-xs">Gekopieerd!</span>
-                  )}
-                </div>
-              )}
-              
               <p className="text-white/70 text-sm mb-4">{project.description}</p>
-              
-              <div className="mb-4">
-                <div className="flex justify-between text-sm text-white/70 mb-1">
-                  <span>Progress</span>
-                  <span>{project.progress}%</span>
-                </div>
-                <div className="w-full bg-white/20 rounded-full h-2">
-                  <div 
-                    className="bg-gradient-blue-purple h-2 rounded-full transition-all"
-                    style={{ width: `${project.progress}%` }}
-                  ></div>
-                </div>
-              </div>
-
-              <div className="flex items-start justify-between">
-                <div className="space-y-2 flex-1">
-                  <div className="flex items-center text-white/70 text-sm">
-                    <Calendar className="w-4 h-4 mr-2" />
-                    <span>Deadline: {project.deadline}</span>
-                  </div>
-                  <div className="flex items-center text-white/70 text-sm">
-                    <Users className="w-4 h-4 mr-2" />
-                    <span>Team: {Array.isArray(project.team) ? project.team.join(', ') : project.team}</span>
-                  </div>
-                  {project.budget && (
-                    <div className="flex items-center text-white/70 text-sm">
-                      <Clock className="w-4 h-4 mr-2" />
-                      <span>Budget: {project.budget}</span>
-                    </div>
-                  )}
-                </div>
-                
-                {/* SEO Score - right side next to info */}
-                {project.seoScore && (
-                  <div className="flex flex-col items-center ml-6">
-                    <SeoScoreCircle score={project.seoScore} />
-                    <span className="text-white/60 text-xs mt-1">SEO</span>
-                  </div>
-                )}
-              </div>
 
               {/* Action Buttons */}
               <div className="flex space-x-2 mt-4 pt-4 border-t border-white/10">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      // Open Shopify Space - you can customize this URL
-                      window.open('https://partners.shopify.com/', '_blank');
+                      if (project.shopDomain) {
+                        const cleanDomain = String(project.shopDomain).replace(/^https?:\/\//, '');
+                        window.open(`https://${cleanDomain}`, '_blank');
+                      }
                     }}
                     className="flex-1 flex items-center justify-center space-x-2 bg-white/10 hover:bg-white/20 text-white text-sm py-2 px-3 rounded-lg transition-colors"
-                    title="Open Shopify Space"
+                    title="Open Website"
                   >
-                    <ExternalLink className="w-4 h-4" />
-                    <span>Shopify Space</span>
+                    <Globe className="w-4 h-4" />
+                    <span>Website</span>
                   </button>
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      window.open('https://confluence.atlassian.com/', '_blank');
+                      if (project.shopDomain) {
+                        const cleanDomain = String(project.shopDomain).replace(/^https?:\/\//, '').replace('.myshopify.com', '');
+                        window.open(`https://${cleanDomain}.com`, '_blank');
+                      }
                     }}
                     className="flex-1 flex items-center justify-center space-x-2 bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 text-sm py-2 px-3 rounded-lg transition-colors"
-                    title="Open Confluence Space"
+                    title="Open Domein"
                   >
-                    <BookOpen className="w-4 h-4" />
-                    <span>Confluence</span>
+                    <Globe className="w-4 h-4" />
+                    <span>Domein</span>
                   </button>
               </div>
+            </div>
             </div>
           </div>
         ))}
       </div>
+
+      {/* Project Agenda */}
+      <ProjectAgenda setActiveTab={setActiveTab} setSelectedProject={setSelectedProject} />
     </div>
   );
 };
