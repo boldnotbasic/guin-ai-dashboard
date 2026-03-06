@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Save, User, Bell, Shield, Palette, Upload, X } from 'lucide-react';
+import { Save, User, Bell, Shield, Palette, Upload, X, Eye, EyeOff, Lock } from 'lucide-react';
 import { supabase, profiles } from '../utils/supabaseClient';
 
 const SettingsPage = () => {
@@ -21,6 +21,16 @@ const SettingsPage = () => {
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [userId, setUserId] = useState(null);
+  
+  // Password change state
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPasswords, setShowPasswords] = useState(false);
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordSuccess, setPasswordSuccess] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
 
   // Load profile data on mount
   useEffect(() => {
@@ -148,6 +158,64 @@ const SettingsPage = () => {
 
   const removeProfilePhoto = () => {
     setProfilePhoto(null);
+  };
+
+  const validatePassword = (pwd) => {
+    if (pwd.length < 10) {
+      return 'Wachtwoord moet minimaal 10 tekens zijn';
+    }
+    if (!/[A-Z]/.test(pwd)) {
+      return 'Wachtwoord moet minimaal 1 hoofdletter bevatten';
+    }
+    if (!/[0-9]/.test(pwd)) {
+      return 'Wachtwoord moet minimaal 1 cijfer bevatten';
+    }
+    return null;
+  };
+
+  const handlePasswordChange = async (e) => {
+    e.preventDefault();
+    setPasswordError('');
+    setChangingPassword(true);
+
+    // Validate new password strength
+    const validationError = validatePassword(newPassword);
+    if (validationError) {
+      setPasswordError(validationError);
+      setChangingPassword(false);
+      return;
+    }
+
+    // Check if passwords match
+    if (newPassword !== confirmPassword) {
+      setPasswordError('Wachtwoorden komen niet overeen');
+      setChangingPassword(false);
+      return;
+    }
+
+    try {
+      // Update password in Supabase
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword
+      });
+
+      if (error) throw error;
+
+      setPasswordSuccess(true);
+      
+      // Reset form after 2 seconds
+      setTimeout(() => {
+        setShowPasswordModal(false);
+        setCurrentPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
+        setPasswordSuccess(false);
+      }, 2000);
+    } catch (err) {
+      setPasswordError(err.message || 'Er ging iets mis bij het wijzigen van je wachtwoord');
+    } finally {
+      setChangingPassword(false);
+    }
   };
 
   return (
@@ -304,7 +372,10 @@ const SettingsPage = () => {
           </div>
           
           <div className="space-y-4">
-            <button className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white hover:bg-white/20 transition-colors">
+            <button 
+              onClick={() => setShowPasswordModal(true)}
+              className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white hover:bg-white/20 transition-colors"
+            >
               Wachtwoord wijzigen
             </button>
             <button className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white hover:bg-white/20 transition-colors">
@@ -327,6 +398,128 @@ const SettingsPage = () => {
           <span>{saving ? 'Opslaan...' : 'Instellingen opslaan'}</span>
         </button>
       </div>
+
+      {/* Password Change Modal */}
+      {showPasswordModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="gradient-card rounded-xl p-8 w-full max-w-md">
+            {passwordSuccess ? (
+              <div className="text-center">
+                <div className="text-6xl mb-4">✅</div>
+                <h2 className="text-white text-2xl font-semibold mb-2">Wachtwoord gewijzigd!</h2>
+                <p className="text-white/70">Je wachtwoord is succesvol bijgewerkt.</p>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-white text-xl font-semibold">Wachtwoord wijzigen</h2>
+                  <button
+                    onClick={() => {
+                      setShowPasswordModal(false);
+                      setPasswordError('');
+                      setCurrentPassword('');
+                      setNewPassword('');
+                      setConfirmPassword('');
+                    }}
+                    className="text-white/60 hover:text-white transition-colors"
+                  >
+                    <X className="w-6 h-6" />
+                  </button>
+                </div>
+
+                <form onSubmit={handlePasswordChange} className="space-y-6">
+                  {/* Password Requirements Info */}
+                  <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3">
+                    <p className="text-blue-300 text-xs font-semibold mb-2">Wachtwoord vereisten:</p>
+                    <ul className="text-blue-300/80 text-xs space-y-1">
+                      <li>• Minimaal 10 tekens</li>
+                      <li>• Minimaal 1 hoofdletter</li>
+                      <li>• Minimaal 1 cijfer</li>
+                    </ul>
+                  </div>
+
+                  {/* New Password Field */}
+                  <div>
+                    <label className="block text-white/70 text-sm mb-2">Nieuw wachtwoord</label>
+                    <div className="relative">
+                      <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-white/60 w-5 h-5" />
+                      <input
+                        type={showPasswords ? 'text' : 'password'}
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        className="w-full pl-12 pr-12 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/60 focus:outline-none focus:border-blue-400 transition-colors"
+                        placeholder="Voer nieuw wachtwoord in"
+                        required
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPasswords(!showPasswords)}
+                        className="absolute right-3 top-1/2 transform -translate-y-1/2 text-white/60 hover:text-white transition-colors"
+                      >
+                        {showPasswords ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Confirm Password Field */}
+                  <div>
+                    <label className="block text-white/70 text-sm mb-2">Bevestig wachtwoord</label>
+                    <div className="relative">
+                      <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-white/60 w-5 h-5" />
+                      <input
+                        type={showPasswords ? 'text' : 'password'}
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        className="w-full pl-12 pr-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/60 focus:outline-none focus:border-blue-400 transition-colors"
+                        placeholder="Herhaal nieuw wachtwoord"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  {/* Error Message */}
+                  {passwordError && (
+                    <div className="bg-red-500/20 border border-red-500/30 rounded-lg p-3">
+                      <p className="text-red-300 text-sm">{passwordError}</p>
+                    </div>
+                  )}
+
+                  {/* Submit Buttons */}
+                  <div className="flex space-x-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowPasswordModal(false);
+                        setPasswordError('');
+                        setCurrentPassword('');
+                        setNewPassword('');
+                        setConfirmPassword('');
+                      }}
+                      className="flex-1 glass-effect px-4 py-3 rounded-lg text-white hover:bg-white/10 transition-colors"
+                    >
+                      Annuleren
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={changingPassword}
+                      className="flex-1 btn-primary px-4 py-3 rounded-lg text-white font-medium flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {changingPassword ? (
+                        <>
+                          <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                          <span>Wijzigen...</span>
+                        </>
+                      ) : (
+                        <span>Wijzigen</span>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
