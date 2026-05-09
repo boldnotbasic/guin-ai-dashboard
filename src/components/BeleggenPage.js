@@ -83,7 +83,7 @@ const AnalystMeter = ({ recommendation, growthData, targetPrice, currentPrice })
     return 'Verkopen';
   };
 
-  // Calculate analyst data - NO MORE PLACEHOLDERS
+  // Calculate analyst data
   const hasAnalysts = recommendation && recommendation.mean !== null && recommendation.mean !== undefined;
   const analystMean = hasAnalysts ? recommendation.mean : null;
   const analystCount = hasAnalysts ? (recommendation.analysts || recommendation.numberOfAnalystOpinions || 0) : 0;
@@ -105,81 +105,81 @@ const AnalystMeter = ({ recommendation, growthData, targetPrice, currentPrice })
   const hasTarget = targetPrice && currentPrice;
   const targetUpside = hasTarget ? ((targetPrice - currentPrice) / currentPrice) * 100 : null;
 
-  // Hard color-stops gradient (5 distinct segments) for analyst bar
+  // Hard color-stops gradient (5 distinct segments)
   const segmentedGradient = 'linear-gradient(to right, #059669 0%, #059669 20%, #34d399 20%, #34d399 40%, #f59e0b 40%, #f59e0b 60%, #f97316 60%, #f97316 80%, #ef4444 80%, #ef4444 100%)';
+
+  // Determine what to show as primary meter
+  // If we have analyst data, show that. Otherwise use momentum as primary.
+  const showAnalystAsPrimary = hasAnalysts;
+  const primaryPct = showAnalystAsPrimary ? analystPct : (hasMomentum ? momentumPct : 50);
+  const primaryLabel = showAnalystAsPrimary ? 'Aanbevelingen analisten' : 'Momentum score';
+  const primarySource = showAnalystAsPrimary ? (analystCount > 0 ? `${analystCount} analisten` : null) : 'Berekend op basis van groei';
 
   return (
     <div className="mt-2 pt-2 border-t border-white/5 mb-3">
-      {/* Analyst Consensus - Primary */}
+      {/* Primary Meter - Always show colored bar */}
       <div className="mb-3">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-white/60 text-xs font-medium">Aanbevelingen analisten</span>
-          {hasAnalysts ? (
-            <span className="text-xs font-bold" style={{ color: getColor(analystPct) }}>{getLabel(analystPct)}</span>
-          ) : (
-            <span className="text-xs text-white/30 italic">Geen data</span>
-          )}
+          <span className="text-white/60 text-xs font-medium">{primaryLabel}</span>
+          <span className="text-xs font-bold" style={{ color: getColor(primaryPct) }}>{getLabel(primaryPct)}</span>
         </div>
-        {hasAnalysts ? (
-          <>
-            <div className="relative h-2.5 rounded-full overflow-hidden" style={{ background: segmentedGradient }}>
-              <div
-                className="absolute top-[-1px] w-3.5 h-3.5 rounded-full bg-white border-2 shadow-lg"
-                style={{ left: `calc(${Math.max(2, Math.min(98, analystPct))}% - 7px)`, borderColor: getColor(analystPct) }}
-              />
-            </div>
-            {/* Legend with colored dots */}
-            <div className="flex items-center justify-between mt-2 flex-wrap gap-x-2 gap-y-1">
-              <div className="flex items-center space-x-1">
-                <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: '#059669' }}></span>
-                <span className="text-[9px] text-white/60">Kopen</span>
-              </div>
-              <div className="flex items-center space-x-1">
-                <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: '#34d399' }}></span>
-                <span className="text-[9px] text-white/60">Opbouwen</span>
-              </div>
-              <div className="flex items-center space-x-1">
-                <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: '#f59e0b' }}></span>
-                <span className="text-[9px] text-white/60">Houden</span>
-              </div>
-              <div className="flex items-center space-x-1">
-                <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: '#f97316' }}></span>
-                <span className="text-[9px] text-white/60">Afbouwen</span>
-              </div>
-              <div className="flex items-center space-x-1">
-                <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: '#ef4444' }}></span>
-                <span className="text-[9px] text-white/60">Verkopen</span>
-              </div>
-            </div>
-            {/* Breakdown if available */}
-            {breakdown && (
-              <div className="flex items-center justify-between mt-2 text-[9px]">
-                <span className="text-green-400">{breakdown.strongBuy + breakdown.buy} Buy</span>
-                <span className="text-yellow-400">{breakdown.hold} Hold</span>
-                <span className="text-red-400">{breakdown.sell + breakdown.strongSell} Sell</span>
-              </div>
-            )}
-            <div className="flex items-center justify-between mt-2">
-              <span className="text-[10px] text-white/40">Aantal analisten</span>
-              <span className="text-[10px] text-white font-semibold">{analystCount}</span>
-            </div>
-            {/* Target price */}
-            {hasTarget && (
-              <div className="flex items-center justify-between mt-1">
-                <span className="text-[10px] text-white/40">Doelkoers</span>
-                <span className={`text-[10px] font-semibold ${targetUpside >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                  €{targetPrice.toFixed(2)} ({targetUpside >= 0 ? '+' : ''}{targetUpside.toFixed(1)}%)
-                </span>
-              </div>
-            )}
-          </>
-        ) : (
-          <div className="h-2.5 rounded-full bg-white/5"></div>
+        <div className="relative h-2.5 rounded-full overflow-hidden" style={{ background: segmentedGradient }}>
+          <div
+            className="absolute top-[-1px] w-3.5 h-3.5 rounded-full bg-white border-2 shadow-lg"
+            style={{ left: `calc(${Math.max(2, Math.min(98, primaryPct))}% - 7px)`, borderColor: getColor(primaryPct) }}
+          />
+        </div>
+        {/* Legend with colored dots */}
+        <div className="flex items-center justify-between mt-2 flex-wrap gap-x-2 gap-y-1">
+          <div className="flex items-center space-x-1">
+            <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: '#059669' }}></span>
+            <span className="text-[9px] text-white/60">Kopen</span>
+          </div>
+          <div className="flex items-center space-x-1">
+            <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: '#34d399' }}></span>
+            <span className="text-[9px] text-white/60">Opbouwen</span>
+          </div>
+          <div className="flex items-center space-x-1">
+            <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: '#f59e0b' }}></span>
+            <span className="text-[9px] text-white/60">Houden</span>
+          </div>
+          <div className="flex items-center space-x-1">
+            <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: '#f97316' }}></span>
+            <span className="text-[9px] text-white/60">Afbouwen</span>
+          </div>
+          <div className="flex items-center space-x-1">
+            <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: '#ef4444' }}></span>
+            <span className="text-[9px] text-white/60">Verkopen</span>
+          </div>
+        </div>
+        {/* Breakdown if available (only for analyst data) */}
+        {showAnalystAsPrimary && breakdown && (
+          <div className="flex items-center justify-between mt-2 text-[9px]">
+            <span className="text-green-400">{breakdown.strongBuy + breakdown.buy} Buy</span>
+            <span className="text-yellow-400">{breakdown.hold} Hold</span>
+            <span className="text-red-400">{breakdown.sell + breakdown.strongSell} Sell</span>
+          </div>
+        )}
+        {/* Source info */}
+        {primarySource && (
+          <div className="flex items-center justify-between mt-2">
+            <span className="text-[10px] text-white/40">{showAnalystAsPrimary ? 'Aantal analisten' : 'Bron'}</span>
+            <span className="text-[10px] text-white font-semibold">{showAnalystAsPrimary ? analystCount : 'Momentum'}</span>
+          </div>
+        )}
+        {/* Target price (only for analyst data) */}
+        {showAnalystAsPrimary && hasTarget && (
+          <div className="flex items-center justify-between mt-1">
+            <span className="text-[10px] text-white/40">Doelkoers</span>
+            <span className={`text-[10px] font-semibold ${targetUpside >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+              €{targetPrice.toFixed(2)} ({targetUpside >= 0 ? '+' : ''}{targetUpside.toFixed(1)}%)
+            </span>
+          </div>
         )}
       </div>
 
-      {/* Momentum Score - Secondary (with extra spacing) */}
-      {hasMomentum && (
+      {/* Secondary Momentum Score - Only show if we have analyst data as primary AND momentum data */}
+      {showAnalystAsPrimary && hasMomentum && (
         <div className="mt-4 pt-3 border-t border-white/5">
           <div className="flex items-center justify-between mb-1.5">
             <span className="text-white/50 text-[11px]">Momentum</span>
