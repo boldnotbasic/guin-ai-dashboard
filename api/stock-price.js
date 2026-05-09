@@ -172,7 +172,6 @@ module.exports = async function handler(req, res) {
       marketState: meta.marketState || 'CLOSED',
       timestamp: new Date().toISOString(),
       sparklineData: closes.slice(-30),
-      sparklineTimestamps: timestamps.slice(-30),
       growthData: {
         dailyChange: changePercent,
         growth1mo: growth1mo,

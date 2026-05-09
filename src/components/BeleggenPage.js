@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, TrendingUp, DollarSign, Edit, Trash2, Search, ExternalLink, Link as LinkIcon, X, TrendingDown, Activity, Upload, Image, BarChart2, RefreshCw, Newspaper, Clock, Eye, Star, Info, FileText, TrendingUpIcon, Filter, SortAsc, Bell, Calendar, Sparkles, Download, BellRing, Trophy, Gem } from 'lucide-react';
+import { Plus, TrendingUp, DollarSign, Edit, Trash2, Search, ExternalLink, Link as LinkIcon, X, TrendingDown, Activity, Upload, Image, BarChart2, RefreshCw, Newspaper, Clock, Eye, Star, Info, FileText, TrendingUpIcon, Filter, SortAsc, Bell, Calendar, Sparkles, Download, BellRing, Trophy, Gem, AlertCircle } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import axios from 'axios';
 import { db, supabase, storage } from '../utils/supabaseClient';
@@ -581,6 +581,23 @@ const BeleggenPage = () => {
           
         } catch (error) {
           console.error(`Error fetching ${originalTicker}:`, error.message);
+          // Store placeholder so profit/loss can still be calculated using purchase_price
+          prices[originalTicker] = {
+            current: null,
+            change: 0,
+            changePercent: 0,
+            previousClose: null,
+            sparklineData: [],
+            currency: 'USD',
+            resolvedTicker: originalTicker,
+            originalTicker: originalTicker,
+            marketState: 'ERROR',
+            growthData: { dailyChange: 0, growth1mo: 0, growth6mo: 0, growth1yr: 0 },
+            technicals: null,
+            riskMetrics: null,
+            volume: null,
+            error: true
+          };
         }
       }
     }
@@ -771,56 +788,25 @@ const BeleggenPage = () => {
   };
 
   const calculateTotalValue = (investment) => {
-    if (!investment.ticker_symbol || !investment.shares) {
+    if (!investment.ticker_symbol || !investment.shares || !stockPrices[investment.ticker_symbol]) {
       return investment.amount;
     }
-    
-    // Try to find price data by ticker symbol (check both original and resolved)
-    let priceData = stockPrices[investment.ticker_symbol];
-    if (!priceData) {
-      const ticker = Object.keys(stockPrices).find(key => 
-        stockPrices[key].resolvedTicker === investment.ticker_symbol ||
-        stockPrices[key].yahooTicker === investment.ticker_symbol ||
-        stockPrices[key].originalTicker === investment.ticker_symbol
-      );
-      if (ticker) {
-        priceData = stockPrices[ticker];
-      }
-    }
-    
-    if (!priceData || !priceData.current) {
-      return investment.amount;
-    }
-    
     // For short positions, value is based on opening price (what you borrowed)
     // For long positions, value is based on current price
     if (investment.is_short) {
       return investment.shares * investment.purchase_price;
     }
-    return investment.shares * priceData.current;
+    return investment.shares * stockPrices[investment.ticker_symbol].current;
   };
 
   const calculateProfitLoss = (investment) => {
     if (!investment.ticker_symbol || !investment.shares || !investment.purchase_price) {
-      return { amount: 0, percentage: 0 };
+      return { amount: 0, percentage: 0, error: 'missing_data' };
     }
     
-    // Try to find price data by ticker symbol (check both original and resolved)
-    let priceData = stockPrices[investment.ticker_symbol];
-    if (!priceData) {
-      // Try to find by checking all stock prices for matching resolved ticker
-      const ticker = Object.keys(stockPrices).find(key => 
-        stockPrices[key].resolvedTicker === investment.ticker_symbol ||
-        stockPrices[key].yahooTicker === investment.ticker_symbol ||
-        stockPrices[key].originalTicker === investment.ticker_symbol
-      );
-      if (ticker) {
-        priceData = stockPrices[ticker];
-      }
-    }
-    
-    if (!priceData || !priceData.current) {
-      return { amount: 0, percentage: 0 };
+    const priceData = stockPrices[investment.ticker_symbol];
+    if (!priceData || priceData.current === null) {
+      return { amount: 0, percentage: 0, error: 'no_price_data' };
     }
     
     const currentPrice = priceData.current;
@@ -830,9 +816,9 @@ const BeleggenPage = () => {
     // For short positions: profit when price goes DOWN (purchase - current)
     // For long positions: profit when price goes UP (current - purchase)
     if (investment.is_short) {
-      const currentValue = shares * purchasePrice;
-      const closeValue = shares * currentPrice;
-      const profitLoss = currentValue - closeValue;
+      const currentValue = shares * purchasePrice; // Value at opening the short
+      const closeValue = shares * currentPrice; // Value at closing the short
+      const profitLoss = currentValue - closeValue; // Profit = opening - closing
       const profitLossPercent = (profitLoss / currentValue) * 100;
       return { amount: profitLoss, percentage: profitLossPercent };
     } else {
@@ -1247,9 +1233,9 @@ const BeleggenPage = () => {
       
       const apiData = response.data;
       
-      // Transform sparkline data to chart format using actual timestamps
-      const data = (apiData.sparklineData || []).map((value, i) => ({
-        time: apiData.sparklineTimestamps?.[i] * 1000 || Date.now() - (apiData.sparklineData.length - i) * 60000,
+      // Transform sparkline data to chart format
+      const data = apiData.sparklineData.map((value, i) => ({
+        time: Date.now() - (apiData.sparklineData.length - i) * 60000, // Approximate timestamps
         value: value
       }));
 
@@ -1267,11 +1253,26 @@ const BeleggenPage = () => {
           priceChange, 
           changePercent, 
           currency: apiData.currency || 'USD', 
-          name: symbol 
+          name: symbol,
+          error: false
         }
       }));
     } catch (error) {
       console.log(`Chart data error for ${symbol}:`, error);
+      // Store placeholder so chart UI can show error state
+      setChartData(prev => ({
+        ...prev,
+        [symbol]: { 
+          data: [], 
+          currentPrice: null, 
+          previousClose: null, 
+          priceChange: 0, 
+          changePercent: 0, 
+          currency: 'USD', 
+          name: symbol,
+          error: true
+        }
+      }));
     }
     setLoadingChartData(prev => ({ ...prev, [symbol]: false }));
   };
@@ -2611,17 +2612,26 @@ const BeleggenPage = () => {
 
                 {/* Profit/Loss */}
                 {stockPrice && investment.shares && investment.purchase_price && (
-                  <div className={`p-3 rounded-lg ${profitLoss.amount >= 0 ? 'bg-green-500/10' : 'bg-red-500/10'}`}>
-                    <div className="flex items-center justify-between">
-                      <span className="text-white/60 text-sm">Winst/Verlies (live)</span>
-                      <div className={`flex items-center space-x-1 ${profitLoss.amount >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        {profitLoss.amount >= 0 ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
-                        <span className="font-semibold">
-                          {profitLoss.amount >= 0 ? '+' : ''}€{Math.abs(profitLoss.amount).toFixed(2)} ({profitLoss.percentage.toFixed(2)}%)
-                        </span>
+                  profitLoss.error ? (
+                    <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
+                      <div className="flex items-center justify-between">
+                        <span className="text-white/60 text-sm">Winst/Verlies (live)</span>
+                        <span className="text-yellow-400 text-xs">Geen koersdata beschikbaar</span>
                       </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className={`p-3 rounded-lg ${profitLoss.amount >= 0 ? 'bg-green-500/10' : 'bg-red-500/10'}`}>
+                      <div className="flex items-center justify-between">
+                        <span className="text-white/60 text-sm">Winst/Verlies (live)</span>
+                        <div className={`flex items-center space-x-1 ${profitLoss.amount >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          {profitLoss.amount >= 0 ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+                          <span className="font-semibold">
+                            {profitLoss.amount >= 0 ? '+' : ''}€{Math.abs(profitLoss.amount).toFixed(2)} ({profitLoss.percentage.toFixed(2)}%)
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )
                 )}
 
                 {/* Links */}
@@ -4028,7 +4038,19 @@ const BeleggenPage = () => {
                     <Activity className="w-5 h-5 text-white/30 animate-pulse" />
                   </div>
                 )}
-                {cd && cd.data.length > 0 && (
+                {cd?.error && (
+                  <div className="h-48 flex flex-col items-center justify-center text-center px-4">
+                    <AlertCircle className="w-8 h-8 text-red-400/50 mb-2" />
+                    <p className="text-white/40 text-xs">Grafiekdata niet beschikbaar</p>
+                    <button 
+                      onClick={() => fetchChartDataForSymbol(symbol, tf)}
+                      className="text-purple-400 text-xs mt-2 hover:text-purple-300"
+                    >
+                      Opnieuw proberen
+                    </button>
+                  </div>
+                )}
+                {cd && cd.data.length > 0 && !cd.error && (
                   <div style={{ height: 180 }}>
                     <ResponsiveContainer width="100%" height="100%">
                       <AreaChart data={cd.data} margin={{ top: 5, right: 5, left: 5, bottom: 0 }}>
@@ -4115,7 +4137,19 @@ const BeleggenPage = () => {
                     <Activity className="w-5 h-5 text-white/30 animate-pulse" />
                   </div>
                 )}
-                {cd && cd.data.length > 0 && (
+                {cd?.error && (
+                  <div className="h-48 flex flex-col items-center justify-center text-center px-4">
+                    <AlertCircle className="w-8 h-8 text-red-400/50 mb-2" />
+                    <p className="text-white/40 text-xs">Grafiekdata niet beschikbaar</p>
+                    <button 
+                      onClick={() => fetchChartDataForSymbol(symbol, tf)}
+                      className="text-purple-400 text-xs mt-2 hover:text-purple-300"
+                    >
+                      Opnieuw proberen
+                    </button>
+                  </div>
+                )}
+                {cd && cd.data.length > 0 && !cd.error && (
                   <div style={{ height: 180 }}>
                     <ResponsiveContainer width="100%" height="100%">
                       <AreaChart data={cd.data} margin={{ top: 5, right: 5, left: 5, bottom: 0 }}>
