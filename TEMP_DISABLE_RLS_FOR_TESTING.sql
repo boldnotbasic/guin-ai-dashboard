@@ -1,0 +1,16 @@
+-- TEMPORARY: Disable RLS for testing to see all data
+-- WARNING: Only use this for testing! Re-enable RLS after checking data!
+
+-- Disable RLS on key tables
+ALTER TABLE autos DISABLE ROW LEVEL SECURITY;
+ALTER TABLE aquarium_fish DISABLE ROW LEVEL SECURITY;
+ALTER TABLE jerky_batches DISABLE ROW LEVEL SECURITY;
+ALTER TABLE festivals DISABLE ROW LEVEL SECURITY;
+ALTER TABLE recipes DISABLE ROW LEVEL SECURITY;
+
+-- After testing, RE-ENABLE with this:
+-- ALTER TABLE autos ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE aquarium_fish ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE jerky_batches ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE festivals ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE recipes ENABLE ROW LEVEL SECURITY;

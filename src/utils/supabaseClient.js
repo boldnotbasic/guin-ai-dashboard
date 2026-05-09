@@ -1370,11 +1370,28 @@ db.investments = {
       .from('investments')
       .select(`
         *,
-        investment_links (*)
+        investment_links (*),
+        investment_batches (*)
       `)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false});
     if (error) throw error;
-    return data || [];
+    
+    // Calculate totals from batches for each investment
+    return (data || []).map(inv => {
+      if (inv.investment_batches && inv.investment_batches.length > 0) {
+        const totalShares = inv.investment_batches.reduce((sum, b) => sum + (b.shares || 0), 0);
+        const totalAmount = inv.investment_batches.reduce((sum, b) => sum + (b.amount || 0), 0);
+        const avgPrice = totalShares > 0 ? totalAmount / totalShares : 0;
+        
+        return {
+          ...inv,
+          shares: totalShares,
+          amount: totalAmount,
+          purchase_price: avgPrice
+        };
+      }
+      return inv;
+    });
   },
   create: async (investment) => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -1419,6 +1436,45 @@ db.investmentLinks = {
   delete: async (id) => {
     const { error } = await supabase
       .from('investment_links')
+      .delete()
+      .eq('id', id);
+    if (error) throw error;
+  }
+};
+
+// Investment Batches (multiple purchases of same stock)
+db.investmentBatches = {
+  getByInvestment: async (investmentId) => {
+    const { data, error } = await supabase
+      .from('investment_batches')
+      .select('*')
+      .eq('investment_id', investmentId)
+      .order('purchase_date', { ascending: false });
+    if (error) throw error;
+    return data || [];
+  },
+  create: async (batch) => {
+    const { data, error } = await supabase
+      .from('investment_batches')
+      .insert([batch])
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  },
+  update: async (id, updates) => {
+    const { data, error } = await supabase
+      .from('investment_batches')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  },
+  delete: async (id) => {
+    const { error } = await supabase
+      .from('investment_batches')
       .delete()
       .eq('id', id);
     if (error) throw error;
