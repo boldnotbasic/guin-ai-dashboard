@@ -33,28 +33,65 @@ const tradingViewToYahoo = (tvTicker) => {
   return symbol + suffix;
 };
 
-// Fetch from Yahoo Finance
+// Generate ticker variants to try in order
+const getTickerVariants = (ticker) => {
+  const variants = [];
+  const primary = tradingViewToYahoo(ticker);
+  variants.push(primary);
+  
+  // If ticker contains colon (TradingView format), also try just the symbol part
+  if (ticker.includes(':')) {
+    const parts = ticker.split(':');
+    const symbol = parts[0].length <= 6 && /^[A-Z]+$/.test(parts[0]) ? parts[1] : parts[0];
+    if (!variants.includes(symbol)) variants.push(symbol);
+  }
+  
+  // Try common European exchange suffixes if no exchange specified
+  if (!ticker.includes(':') && !ticker.includes('.')) {
+    variants.push(`${ticker}.AS`, `${ticker}.DE`, `${ticker}.PA`, `${ticker}.L`, `${ticker}.MI`);
+  }
+  
+  return [...new Set(variants)]; // dedupe
+};
+
+// Fetch from Yahoo Finance with fallback to multiple ticker variants
 const fetchYahooData = async (ticker, range = '1d', interval = '5m') => {
-  const yahooTicker = tradingViewToYahoo(ticker);
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${yahooTicker}?interval=${interval}&range=${range}`;
+  const variants = getTickerVariants(ticker);
+  let lastError = null;
   
-  const response = await fetch(url, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+  for (const yahooTicker of variants) {
+    try {
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${yahooTicker}?interval=${interval}&range=${range}`;
+      
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+      });
+      
+      if (!response.ok) {
+        lastError = new Error(`Yahoo ${response.status} for ${yahooTicker}`);
+        continue;
+      }
+      
+      const data = await response.json();
+      
+      if (!data.chart?.result?.[0]) {
+        lastError = new Error(`No data for ${yahooTicker}`);
+        continue;
+      }
+      
+      // Success - attach resolved ticker
+      const result = data.chart.result[0];
+      result._resolvedTicker = yahooTicker;
+      return result;
+    } catch (err) {
+      lastError = err;
+      continue;
     }
-  });
-  
-  if (!response.ok) {
-    throw new Error(`Yahoo Finance error: ${response.status}`);
   }
   
-  const data = await response.json();
-  
-  if (!data.chart?.result?.[0]) {
-    throw new Error('No data available');
-  }
-  
-  return data.chart.result[0];
+  throw lastError || new Error('All ticker variants failed');
 };
 
 // Calculate technical indicators
@@ -163,7 +200,7 @@ module.exports = async function handler(req, res) {
     
     const responseData = {
       ticker: ticker,
-      yahooTicker: tradingViewToYahoo(ticker),
+      yahooTicker: result._resolvedTicker || tradingViewToYahoo(ticker),
       current: currentPrice,
       previousClose: previousClose,
       change: change,
