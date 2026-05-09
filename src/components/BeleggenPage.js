@@ -609,8 +609,18 @@ const BeleggenPage = () => {
             // New fields from enhanced API
             technicals: data.technicals,
             riskMetrics: data.riskMetrics,
-            volume: data.volume
+            volume: data.volume,
+            // Analyst data now comes with stock-price response
+            analystData: data.analystData || null
           };
+          
+          // Also store analyst data in separate state for easy access
+          if (data.analystData) {
+            setAnalystData(prev => ({
+              ...prev,
+              [originalTicker]: data.analystData
+            }));
+          }
           
         } catch (error) {
           console.error(`Error fetching ${originalTicker}:`, error.message);
@@ -621,32 +631,7 @@ const BeleggenPage = () => {
     
     setStockPrices(prices);
     setLoadingPrices(false);
-    
-    // Also fetch analyst data for all tickers
-    const tickersWithPrices = Object.keys(prices);
-    if (tickersWithPrices.length > 0) {
-      fetchAnalystRecommendations(tickersWithPrices);
-    }
-  };
-
-  // Fetch analyst recommendations from our API
-  const fetchAnalystRecommendations = async (tickers) => {
-    if (!tickers || tickers.length === 0) return;
-    
-    try {
-      const response = await axios.get('/api/analyst', {
-        params: { tickers: tickers.join(',') }
-      });
-      
-      if (response.data?.results) {
-        setAnalystData(prev => ({
-          ...prev,
-          ...response.data.results
-        }));
-      }
-    } catch (error) {
-      console.error('Error fetching analyst data:', error.message);
-    }
+    // Analyst data is now fetched with each stock-price call and stored above
   };
 
   const loadInvestments = async () => {

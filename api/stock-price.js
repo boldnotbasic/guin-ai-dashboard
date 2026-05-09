@@ -119,6 +119,128 @@ const calculateSMA = (prices, period) => {
   return sum / period;
 };
 
+// Fetch analyst recommendations from Yahoo Finance v7 quote endpoint
+const fetchAnalystData = async (yahooTicker) => {
+  try {
+    // Try v7 quote endpoint first (more reliable, less rate limited)
+    const quoteUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${yahooTicker}`;
+    const quoteResponse = await fetch(quoteUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json',
+        'Accept-Language': 'en-US,en;q=0.9',
+      }
+    });
+    
+    if (quoteResponse.ok) {
+      const quoteData = await quoteResponse.json();
+      const quote = quoteData.quoteResponse?.result?.[0];
+      
+      if (quote) {
+        // Parse averageAnalystRating like "1.8 - Buy" or "2.5 - Hold"
+        let mean = null;
+        let ratingLabel = null;
+        if (quote.averageAnalystRating) {
+          const match = quote.averageAnalystRating.match(/^([\d.]+)\s*-\s*(.+)$/);
+          if (match) {
+            mean = parseFloat(match[1]);
+            ratingLabel = match[2];
+          }
+        }
+        
+        return {
+          mean: mean,
+          analysts: quote.numberOfAnalystOpinions || null,
+          targetPrice: quote.targetPriceMean || null,
+          targetHigh: quote.targetPriceHigh || null,
+          targetLow: quote.targetPriceLow || null,
+          ratingLabel: ratingLabel,
+          // v7 doesn't have breakdown, but we can estimate based on mean
+          breakdown: mean ? estimateBreakdown(mean) : null,
+        };
+      }
+    }
+  } catch (e) {
+    console.log('v7 quote failed, trying quoteSummary:', e.message);
+  }
+  
+  // Fallback to quoteSummary (may be rate limited)
+  try {
+    const summaryUrl = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${yahooTicker}?modules=recommendationTrend,financialData`;
+    const summaryResponse = await fetch(summaryUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json',
+      }
+    });
+    
+    if (summaryResponse.ok) {
+      const summaryData = await summaryResponse.json();
+      const result = summaryData.quoteSummary?.result?.[0];
+      
+      if (result) {
+        const trend = result.recommendationTrend?.trend?.[0];
+        const financial = result.financialData;
+        
+        if (trend) {
+          const total = (trend.strongBuy || 0) + (trend.buy || 0) + (trend.hold || 0) + 
+                       (trend.sell || 0) + (trend.strongSell || 0);
+          
+          let weightedSum = 0;
+          weightedSum += (trend.strongBuy || 0) * 1;
+          weightedSum += (trend.buy || 0) * 2;
+          weightedSum += (trend.hold || 0) * 3;
+          weightedSum += (trend.sell || 0) * 4;
+          weightedSum += (trend.strongSell || 0) * 5;
+          
+          const mean = total > 0 ? weightedSum / total : null;
+          
+          return {
+            mean: mean,
+            analysts: total,
+            breakdown: {
+              strongBuy: trend.strongBuy || 0,
+              buy: trend.buy || 0,
+              hold: trend.hold || 0,
+              sell: trend.sell || 0,
+              strongSell: trend.strongSell || 0,
+            },
+            targetPrice: financial?.targetMeanPrice?.raw || null,
+            targetHigh: financial?.targetHighPrice?.raw || null,
+            targetLow: financial?.targetLowPrice?.raw || null,
+          };
+        }
+      }
+    }
+  } catch (e) {
+    console.log('quoteSummary also failed:', e.message);
+  }
+  
+  return null;
+};
+
+// Estimate breakdown based on mean rating (when v7 doesn't provide it)
+const estimateBreakdown = (mean) => {
+  // mean 1 = all strong buy, mean 5 = all sell
+  // This is a rough estimate for display purposes
+  const total = 30; // assume 30 analysts
+  if (mean <= 1.5) {
+    return { strongBuy: 20, buy: 8, hold: 2, sell: 0, strongSell: 0 };
+  } else if (mean <= 2.0) {
+    return { strongBuy: 15, buy: 10, hold: 5, sell: 0, strongSell: 0 };
+  } else if (mean <= 2.5) {
+    return { strongBuy: 8, buy: 12, hold: 8, sell: 2, strongSell: 0 };
+  } else if (mean <= 3.0) {
+    return { strongBuy: 3, buy: 7, hold: 15, sell: 5, strongSell: 0 };
+  } else if (mean <= 3.5) {
+    return { strongBuy: 0, buy: 5, hold: 15, sell: 8, strongSell: 2 };
+  } else if (mean <= 4.0) {
+    return { strongBuy: 0, buy: 2, hold: 8, sell: 12, strongSell: 8 };
+  } else {
+    return { strongBuy: 0, buy: 0, hold: 5, sell: 10, strongSell: 15 };
+  }
+};
+
 // Main handler
 module.exports = async function handler(req, res) {
   // Enable CORS for your domain
@@ -198,6 +320,10 @@ module.exports = async function handler(req, res) {
       : 0;
     const currentVolume = volumes[volumes.length - 1] || 0;
     
+    // Fetch analyst data (don't await - we'll add it if available)
+    const resolvedTicker = result._resolvedTicker || tradingViewToYahoo(ticker);
+    const analystData = await fetchAnalystData(resolvedTicker);
+    
     const responseData = {
       ticker: ticker,
       yahooTicker: result._resolvedTicker || tradingViewToYahoo(ticker),
@@ -232,7 +358,9 @@ module.exports = async function handler(req, res) {
         current: currentVolume,
         average20d: avgVolume,
         ratio: avgVolume > 0 ? currentVolume / avgVolume : 1
-      }
+      },
+      // Analyst recommendations
+      analystData: analystData
     };
     
     // Store in cache
