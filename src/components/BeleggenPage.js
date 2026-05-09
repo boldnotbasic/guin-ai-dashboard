@@ -581,23 +581,7 @@ const BeleggenPage = () => {
           
         } catch (error) {
           console.error(`Error fetching ${originalTicker}:`, error.message);
-          // Store placeholder so profit/loss can still be calculated using purchase_price
-          prices[originalTicker] = {
-            current: null,
-            change: 0,
-            changePercent: 0,
-            previousClose: null,
-            sparklineData: [],
-            currency: 'USD',
-            resolvedTicker: originalTicker,
-            originalTicker: originalTicker,
-            marketState: 'ERROR',
-            growthData: { dailyChange: 0, growth1mo: 0, growth6mo: 0, growth1yr: 0 },
-            technicals: null,
-            riskMetrics: null,
-            volume: null,
-            error: true
-          };
+          // Don't store anything on error - existing UI handles missing tickers
         }
       }
     }
