@@ -1196,33 +1196,42 @@ const BeleggenPage = () => {
     const intervalMap = { '1D': '5m', '1W': '15m', '1M': '1d', '3M': '1d', '6M': '1d', '1Y': '1wk', '5Y': '1mo' };
     const range = rangeMap[timeframe] || '1mo';
     const interval = intervalMap[timeframe] || '1d';
-    const yahooSymbol = symbol.includes(':') ? tradingViewToYahoo(symbol) : symbol;
 
     setLoadingChartData(prev => ({ ...prev, [symbol]: true }));
     try {
-      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}?interval=${interval}&range=${range}`;
-      const response = await axios.get(`${CORS_PROXY}${encodeURIComponent(url)}`);
-      const result = response.data.chart.result[0];
-      const timestamps = result.timestamp || [];
-      const closes = result.indicators.quote[0].close || [];
-      const meta = result.meta;
+      // Use our Vercel API endpoint
+      const response = await axios.get(`/api/stock-price`, {
+        params: {
+          ticker: symbol,
+          range: range,
+          interval: interval
+        }
+      });
+      
+      const apiData = response.data;
+      
+      // Transform sparkline data to chart format
+      const data = apiData.sparklineData.map((value, i) => ({
+        time: Date.now() - (apiData.sparklineData.length - i) * 60000, // Approximate timestamps
+        value: value
+      }));
 
-      const data = timestamps.map((ts, i) => ({
-        time: ts * 1000,
-        price: closes[i],
-        label: timeframe === '1D' || timeframe === '1W'
-          ? new Date(ts * 1000).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
-          : new Date(ts * 1000).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })
-      })).filter(d => d.price !== null);
-
-      const currentPrice = meta.regularMarketPrice;
-      const previousClose = meta.previousClose || (data.length > 0 ? data[0].price : currentPrice);
-      const priceChange = currentPrice - previousClose;
-      const changePercent = previousClose ? (priceChange / previousClose) * 100 : 0;
+      const currentPrice = apiData.current;
+      const previousClose = apiData.previousClose;
+      const priceChange = apiData.change;
+      const changePercent = apiData.changePercent;
 
       setChartData(prev => ({
         ...prev,
-        [symbol]: { data, currentPrice, previousClose, priceChange, changePercent, currency: meta.currency || 'USD', name: meta.shortName || symbol }
+        [symbol]: { 
+          data, 
+          currentPrice, 
+          previousClose, 
+          priceChange, 
+          changePercent, 
+          currency: apiData.currency || 'USD', 
+          name: symbol 
+        }
       }));
     } catch (error) {
       console.log(`Chart data error for ${symbol}:`, error);

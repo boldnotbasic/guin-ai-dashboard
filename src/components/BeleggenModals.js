@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Bell, Calendar, Sparkles, TrendingUp, AlertTriangle } from 'lucide-react';
+import { X, Bell, Calendar, Sparkles, TrendingUp, AlertTriangle, ExternalLink } from 'lucide-react';
 import { ALERT_TYPES } from '../utils/alertSystem';
 
 // Alert Modal Component
@@ -240,6 +240,16 @@ export const EarningsModal = ({ show, onClose, earningsData, loadingEarnings, ea
             </div>
           </div>
           <div className="flex items-center space-x-2">
+            <a
+              href="https://stockanalysis.com/stocks/earnings-calendar/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center space-x-1 text-white/60 hover:text-white text-xs px-2 py-1 rounded bg-white/5 hover:bg-white/10 transition-colors"
+              title="Bekijk volledige earnings calendar"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              <span>Volledige Calendar</span>
+            </a>
             {onRefresh && (
               <button 
                 onClick={onRefresh} 
