@@ -771,31 +771,68 @@ const BeleggenPage = () => {
   };
 
   const calculateTotalValue = (investment) => {
-    if (!investment.ticker_symbol || !investment.shares || !stockPrices[investment.ticker_symbol]) {
+    if (!investment.ticker_symbol || !investment.shares) {
       return investment.amount;
     }
+    
+    // Try to find price data by ticker symbol (check both original and resolved)
+    let priceData = stockPrices[investment.ticker_symbol];
+    if (!priceData) {
+      const ticker = Object.keys(stockPrices).find(key => 
+        stockPrices[key].resolvedTicker === investment.ticker_symbol ||
+        stockPrices[key].yahooTicker === investment.ticker_symbol ||
+        stockPrices[key].originalTicker === investment.ticker_symbol
+      );
+      if (ticker) {
+        priceData = stockPrices[ticker];
+      }
+    }
+    
+    if (!priceData || !priceData.current) {
+      return investment.amount;
+    }
+    
     // For short positions, value is based on opening price (what you borrowed)
     // For long positions, value is based on current price
     if (investment.is_short) {
       return investment.shares * investment.purchase_price;
     }
-    return investment.shares * stockPrices[investment.ticker_symbol].current;
+    return investment.shares * priceData.current;
   };
 
   const calculateProfitLoss = (investment) => {
-    if (!investment.ticker_symbol || !investment.shares || !investment.purchase_price || !stockPrices[investment.ticker_symbol]) {
+    if (!investment.ticker_symbol || !investment.shares || !investment.purchase_price) {
       return { amount: 0, percentage: 0 };
     }
-    const currentPrice = stockPrices[investment.ticker_symbol].current;
+    
+    // Try to find price data by ticker symbol (check both original and resolved)
+    let priceData = stockPrices[investment.ticker_symbol];
+    if (!priceData) {
+      // Try to find by checking all stock prices for matching resolved ticker
+      const ticker = Object.keys(stockPrices).find(key => 
+        stockPrices[key].resolvedTicker === investment.ticker_symbol ||
+        stockPrices[key].yahooTicker === investment.ticker_symbol ||
+        stockPrices[key].originalTicker === investment.ticker_symbol
+      );
+      if (ticker) {
+        priceData = stockPrices[ticker];
+      }
+    }
+    
+    if (!priceData || !priceData.current) {
+      return { amount: 0, percentage: 0 };
+    }
+    
+    const currentPrice = priceData.current;
     const purchasePrice = investment.purchase_price;
     const shares = investment.shares;
 
     // For short positions: profit when price goes DOWN (purchase - current)
     // For long positions: profit when price goes UP (current - purchase)
     if (investment.is_short) {
-      const currentValue = shares * purchasePrice; // Value at opening the short
-      const closeValue = shares * currentPrice; // Value at closing the short
-      const profitLoss = currentValue - closeValue; // Profit = opening - closing
+      const currentValue = shares * purchasePrice;
+      const closeValue = shares * currentPrice;
+      const profitLoss = currentValue - closeValue;
       const profitLossPercent = (profitLoss / currentValue) * 100;
       return { amount: profitLoss, percentage: profitLossPercent };
     } else {
@@ -1210,9 +1247,9 @@ const BeleggenPage = () => {
       
       const apiData = response.data;
       
-      // Transform sparkline data to chart format
-      const data = apiData.sparklineData.map((value, i) => ({
-        time: Date.now() - (apiData.sparklineData.length - i) * 60000, // Approximate timestamps
+      // Transform sparkline data to chart format using actual timestamps
+      const data = (apiData.sparklineData || []).map((value, i) => ({
+        time: apiData.sparklineTimestamps?.[i] * 1000 || Date.now() - (apiData.sparklineData.length - i) * 60000,
         value: value
       }));
 
