@@ -4,8 +4,13 @@
 const CACHE = new Map();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache for screener data
 
-// Screener categories configuration
-const SCREENER_CATEGORIES = {
+// Note: Tickers are now sent from the frontend
+// This keeps the category logic in one place (BeleggenPage.js)
+
+// Removed SCREENER_CATEGORIES - no longer needed
+// Old code kept below for reference if needed:
+/*
+const SCREENER_CATEGORIES_OLD = {
   tech_growth: {
     label: 'Tech Groei',
     description: 'Technologie aandelen met sterke groei',
@@ -159,6 +164,7 @@ const SCREENER_CATEGORIES = {
     ]
   }
 };
+*/
 
 // Technical indicator calculations
 const calculateRSI = (prices, period = 14) => {
@@ -559,18 +565,23 @@ module.exports = async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
   
-  const { category = 'tech_growth', minScore = 0, maxResults = 50 } = req.query;
+  const { tickers, minScore = 0, maxResults = 50 } = req.query;
   
-  // Validate category
-  if (!SCREENER_CATEGORIES[category]) {
+  // Validate tickers
+  if (!tickers) {
     return res.status(400).json({ 
-      error: 'Invalid category',
-      availableCategories: Object.keys(SCREENER_CATEGORIES)
+      error: 'Missing tickers parameter. Provide comma-separated ticker symbols.'
     });
   }
   
+  const tickerList = tickers.split(',').map(t => t.trim()).filter(t => t);
+  
+  if (tickerList.length === 0) {
+    return res.status(400).json({ error: 'No valid tickers provided' });
+  }
+  
   // Check cache
-  const cacheKey = `${category}_${minScore}_${maxResults}`;
+  const cacheKey = `${tickers}_${minScore}_${maxResults}`;
   const cached = CACHE.get(cacheKey);
   
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
@@ -582,20 +593,14 @@ module.exports = async function handler(req, res) {
   }
   
   try {
-    const categoryData = SCREENER_CATEGORIES[category];
     const results = [];
     
     // Fetch data for each ticker (with small delay to avoid rate limiting)
-    for (const stock of categoryData.tickers) {
-      const data = await fetchStockData(stock.ticker);
+    for (const ticker of tickerList) {
+      const data = await fetchStockData(ticker);
       
       if (data && data.qualityScore >= parseInt(minScore)) {
-        results.push({
-          ...data,
-          sector: stock.sector,
-          category: category,
-          categoryLabel: categoryData.label
-        });
+        results.push(data);
       }
       
       // Small delay between requests
@@ -610,7 +615,7 @@ module.exports = async function handler(req, res) {
     
     // Calculate statistics
     const stats = {
-      totalAnalyzed: categoryData.tickers.length,
+      totalAnalyzed: tickerList.length,
       passedFilter: results.length,
       hiddenGems: results.filter(r => r.opportunityType === 'HIDDEN_GEM').length,
       strongOpportunities: results.filter(r => r.opportunityType === 'STRONG_OPPORTUNITY').length,
@@ -619,9 +624,6 @@ module.exports = async function handler(req, res) {
     };
     
     const responseData = {
-      category: category,
-      categoryLabel: categoryData.label,
-      categoryDescription: categoryData.description,
       timestamp: new Date().toISOString(),
       stats,
       results: topResults,

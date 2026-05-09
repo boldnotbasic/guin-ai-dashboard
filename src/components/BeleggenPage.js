@@ -1517,13 +1517,18 @@ const BeleggenPage = () => {
 
   // Fetch live data for screener category tickers
   const fetchScreenerCategoryData = async (category) => {
+    const tickers = SCREENER_CATEGORIES[category]?.tickers || [];
+    if (tickers.length === 0) return;
+    
     setLoadingScreenerData(true);
 
     try {
-      // Use our own Vercel API endpoint with enhanced scoring
+      // Send tickers as comma-separated string
+      const tickerList = tickers.map(t => t.ticker).join(',');
+      
       const response = await axios.get(`/api/screener`, {
         params: {
-          category: category,
+          tickers: tickerList,
           minScore: 0,
           maxResults: 50
         }
@@ -1544,9 +1549,9 @@ const BeleggenPage = () => {
           growth1yr: stock.growth1yr,
           sparkline: stock.sparkline || [],
           currency: stock.currency,
-          recommendation: null, // Will be populated separately if needed
+          recommendation: null,
           rsi: stock.rsi,
-          macd: null, // Not needed for display
+          macd: null,
           sma50: stock.sma50,
           sma200: stock.sma200,
           signal: {
@@ -1561,7 +1566,6 @@ const BeleggenPage = () => {
           qualityScore: stock.qualityScore,
           opportunityType: stock.opportunityType,
           qualityFactors: stock.qualityFactors,
-          // New enhanced metrics
           maxDrawdown30d: stock.maxDrawdown30d,
           volatility30d: stock.volatility30d
         };
@@ -1571,7 +1575,6 @@ const BeleggenPage = () => {
       
     } catch (error) {
       console.error('Screener API error:', error);
-      // Fallback: keep existing data or show error
     }
 
     setLoadingScreenerData(false);
