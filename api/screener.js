@@ -445,6 +445,60 @@ const calculateQualityScore = (data) => {
   };
 };
 
+// Fetch analyst data from Yahoo Finance quoteSummary
+const fetchAnalystData = async (ticker) => {
+  try {
+    const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${ticker}?modules=recommendationTrend,financialData`;
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      }
+    });
+    
+    if (!response.ok) return null;
+    
+    const data = await response.json();
+    const result = data.quoteSummary?.result?.[0];
+    
+    if (!result) return null;
+    
+    const trend = result.recommendationTrend?.trend?.[0];
+    const financial = result.financialData;
+    
+    if (!trend) return null;
+    
+    const total = (trend.strongBuy || 0) + (trend.buy || 0) + (trend.hold || 0) + 
+                 (trend.sell || 0) + (trend.strongSell || 0);
+    
+    let weightedSum = 0;
+    weightedSum += (trend.strongBuy || 0) * 1;
+    weightedSum += (trend.buy || 0) * 2;
+    weightedSum += (trend.hold || 0) * 3;
+    weightedSum += (trend.sell || 0) * 4;
+    weightedSum += (trend.strongSell || 0) * 5;
+    
+    const mean = total > 0 ? weightedSum / total : null;
+    
+    return {
+      mean,
+      analysts: total,
+      breakdown: {
+        strongBuy: trend.strongBuy || 0,
+        buy: trend.buy || 0,
+        hold: trend.hold || 0,
+        sell: trend.sell || 0,
+        strongSell: trend.strongSell || 0,
+      },
+      targetPrice: financial?.targetMeanPrice?.raw || null,
+      targetHigh: financial?.targetHighPrice?.raw || null,
+      targetLow: financial?.targetLowPrice?.raw || null,
+      recommendation: financial?.recommendationKey || null,
+    };
+  } catch (e) {
+    return null;
+  }
+};
+
 // Fetch stock data for a ticker
 const fetchStockData = async (ticker) => {
   try {
@@ -462,6 +516,9 @@ const fetchStockData = async (ticker) => {
     
     const result = data.chart.result[0];
     const meta = result.meta;
+    
+    // Also fetch analyst data
+    const analystData = await fetchAnalystData(ticker);
     const closes = result.indicators.quote[0].close.filter(p => p !== null);
     const volumes = result.indicators.quote[0].volume?.filter(v => v !== null) || [];
     
@@ -541,6 +598,9 @@ const fetchStockData = async (ticker) => {
       opportunityType: quality.opportunityType,
       qualityFactors: quality.factors,
       marketCap: meta.marketCap,
+      // Analyst recommendations
+      recommendation: analystData,
+      targetPrice: analystData?.targetPrice || null,
       timestamp: new Date().toISOString()
     };
     

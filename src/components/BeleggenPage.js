@@ -67,7 +67,7 @@ const isMarketOpen = (currency, exchange) => {
 };
 
 // Analyst recommendation meter (1=Strong Buy ... 5=Strong Sell)
-const AnalystMeter = ({ recommendation, growthData }) => {
+const AnalystMeter = ({ recommendation, growthData, targetPrice, currentPrice }) => {
   const getColor = (p) => {
     if (p <= 20) return '#059669';
     if (p <= 40) return '#34d399';
@@ -83,13 +83,14 @@ const AnalystMeter = ({ recommendation, growthData }) => {
     return 'Verkopen';
   };
 
-  // Calculate analyst data (with placeholder fallback)
-  const hasAnalysts = recommendation && recommendation.mean;
-  const analystMean = hasAnalysts ? recommendation.mean : 2.1; // Placeholder: Buy
-  const analystCount = hasAnalysts ? recommendation.analysts : 44; // Placeholder
+  // Calculate analyst data - NO MORE PLACEHOLDERS
+  const hasAnalysts = recommendation && recommendation.mean !== null && recommendation.mean !== undefined;
+  const analystMean = hasAnalysts ? recommendation.mean : null;
+  const analystCount = hasAnalysts ? (recommendation.analysts || recommendation.numberOfAnalystOpinions || 0) : 0;
   const analystPct = analystMean ? ((analystMean - 1) / 4) * 100 : null;
+  const breakdown = recommendation?.breakdown || null;
 
-  // Calculate momentum data (with placeholder fallback)
+  // Calculate momentum data
   const hasMomentum = growthData && (growthData.dailyChange !== undefined || growthData.growth1mo !== undefined);
   let momentumMean = null;
   let momentumPct = null;
@@ -98,11 +99,11 @@ const AnalystMeter = ({ recommendation, growthData }) => {
     const avgGrowth = (dailyChange * 0.1 + growth1mo * 0.3 + growth6mo * 0.3 + growth1yr * 0.3);
     momentumMean = Math.max(1, Math.min(5, 3 - (avgGrowth / 25)));
     momentumPct = ((momentumMean - 1) / 4) * 100;
-  } else {
-    // Placeholder momentum
-    momentumMean = 2.3;
-    momentumPct = ((momentumMean - 1) / 4) * 100;
   }
+
+  // Target price upside/downside
+  const hasTarget = targetPrice && currentPrice;
+  const targetUpside = hasTarget ? ((targetPrice - currentPrice) / currentPrice) * 100 : null;
 
   // Hard color-stops gradient (5 distinct segments) for analyst bar
   const segmentedGradient = 'linear-gradient(to right, #059669 0%, #059669 20%, #34d399 20%, #34d399 40%, #f59e0b 40%, #f59e0b 60%, #f97316 60%, #f97316 80%, #ef4444 80%, #ef4444 100%)';
@@ -113,56 +114,85 @@ const AnalystMeter = ({ recommendation, growthData }) => {
       <div className="mb-3">
         <div className="flex items-center justify-between mb-2">
           <span className="text-white/60 text-xs font-medium">Aanbevelingen analisten</span>
-          <span className="text-xs font-bold" style={{ color: getColor(analystPct) }}>{getLabel(analystPct)}</span>
+          {hasAnalysts ? (
+            <span className="text-xs font-bold" style={{ color: getColor(analystPct) }}>{getLabel(analystPct)}</span>
+          ) : (
+            <span className="text-xs text-white/30 italic">Geen data</span>
+          )}
         </div>
-        <div className="relative h-2.5 rounded-full overflow-hidden" style={{ background: segmentedGradient }}>
-          <div
-            className="absolute top-[-1px] w-3.5 h-3.5 rounded-full bg-white border-2 shadow-lg"
-            style={{ left: `calc(${Math.max(2, Math.min(98, analystPct))}% - 7px)`, borderColor: getColor(analystPct) }}
-          />
-        </div>
-        {/* Legend with colored dots */}
-        <div className="flex items-center justify-between mt-2 flex-wrap gap-x-2 gap-y-1">
-          <div className="flex items-center space-x-1">
-            <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: '#059669' }}></span>
-            <span className="text-[9px] text-white/60">Kopen</span>
-          </div>
-          <div className="flex items-center space-x-1">
-            <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: '#34d399' }}></span>
-            <span className="text-[9px] text-white/60">Opbouwen</span>
-          </div>
-          <div className="flex items-center space-x-1">
-            <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: '#f59e0b' }}></span>
-            <span className="text-[9px] text-white/60">Houden</span>
-          </div>
-          <div className="flex items-center space-x-1">
-            <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: '#f97316' }}></span>
-            <span className="text-[9px] text-white/60">Afbouwen</span>
-          </div>
-          <div className="flex items-center space-x-1">
-            <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: '#ef4444' }}></span>
-            <span className="text-[9px] text-white/60">Verkopen</span>
-          </div>
-        </div>
-        <div className="flex items-center justify-between mt-2">
-          <span className="text-[10px] text-white/40">Aantal analisten</span>
-          <span className="text-[10px] text-white font-semibold">{analystCount}</span>
-        </div>
+        {hasAnalysts ? (
+          <>
+            <div className="relative h-2.5 rounded-full overflow-hidden" style={{ background: segmentedGradient }}>
+              <div
+                className="absolute top-[-1px] w-3.5 h-3.5 rounded-full bg-white border-2 shadow-lg"
+                style={{ left: `calc(${Math.max(2, Math.min(98, analystPct))}% - 7px)`, borderColor: getColor(analystPct) }}
+              />
+            </div>
+            {/* Legend with colored dots */}
+            <div className="flex items-center justify-between mt-2 flex-wrap gap-x-2 gap-y-1">
+              <div className="flex items-center space-x-1">
+                <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: '#059669' }}></span>
+                <span className="text-[9px] text-white/60">Kopen</span>
+              </div>
+              <div className="flex items-center space-x-1">
+                <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: '#34d399' }}></span>
+                <span className="text-[9px] text-white/60">Opbouwen</span>
+              </div>
+              <div className="flex items-center space-x-1">
+                <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: '#f59e0b' }}></span>
+                <span className="text-[9px] text-white/60">Houden</span>
+              </div>
+              <div className="flex items-center space-x-1">
+                <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: '#f97316' }}></span>
+                <span className="text-[9px] text-white/60">Afbouwen</span>
+              </div>
+              <div className="flex items-center space-x-1">
+                <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: '#ef4444' }}></span>
+                <span className="text-[9px] text-white/60">Verkopen</span>
+              </div>
+            </div>
+            {/* Breakdown if available */}
+            {breakdown && (
+              <div className="flex items-center justify-between mt-2 text-[9px]">
+                <span className="text-green-400">{breakdown.strongBuy + breakdown.buy} Buy</span>
+                <span className="text-yellow-400">{breakdown.hold} Hold</span>
+                <span className="text-red-400">{breakdown.sell + breakdown.strongSell} Sell</span>
+              </div>
+            )}
+            <div className="flex items-center justify-between mt-2">
+              <span className="text-[10px] text-white/40">Aantal analisten</span>
+              <span className="text-[10px] text-white font-semibold">{analystCount}</span>
+            </div>
+            {/* Target price */}
+            {hasTarget && (
+              <div className="flex items-center justify-between mt-1">
+                <span className="text-[10px] text-white/40">Doelkoers</span>
+                <span className={`text-[10px] font-semibold ${targetUpside >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  €{targetPrice.toFixed(2)} ({targetUpside >= 0 ? '+' : ''}{targetUpside.toFixed(1)}%)
+                </span>
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="h-2.5 rounded-full bg-white/5"></div>
+        )}
       </div>
 
       {/* Momentum Score - Secondary (with extra spacing) */}
-      <div className="mt-4 pt-3 border-t border-white/5">
-        <div className="flex items-center justify-between mb-1.5">
-          <span className="text-white/50 text-[11px]">Momentum</span>
-          <span className="text-[11px] font-semibold" style={{ color: getColor(momentumPct) }}>{getLabel(momentumPct)}</span>
+      {hasMomentum && (
+        <div className="mt-4 pt-3 border-t border-white/5">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-white/50 text-[11px]">Momentum</span>
+            <span className="text-[11px] font-semibold" style={{ color: getColor(momentumPct) }}>{getLabel(momentumPct)}</span>
+          </div>
+          <div className="relative h-1.5 rounded-full overflow-hidden" style={{ background: 'linear-gradient(to right, #059669, #34d399, #f59e0b, #f97316, #ef4444)' }}>
+            <div
+              className="absolute top-[-1px] w-2.5 h-2.5 rounded-full bg-white border-2 shadow-md"
+              style={{ left: `calc(${Math.max(2, Math.min(98, momentumPct))}% - 5px)`, borderColor: getColor(momentumPct) }}
+            />
+          </div>
         </div>
-        <div className="relative h-1.5 rounded-full overflow-hidden" style={{ background: 'linear-gradient(to right, #059669, #34d399, #f59e0b, #f97316, #ef4444)' }}>
-          <div
-            className="absolute top-[-1px] w-2.5 h-2.5 rounded-full bg-white border-2 shadow-md"
-            style={{ left: `calc(${Math.max(2, Math.min(98, momentumPct))}% - 5px)`, borderColor: getColor(momentumPct) }}
-          />
-        </div>
-      </div>
+      )}
     </div>
   );
 };
@@ -406,6 +436,9 @@ const BeleggenPage = () => {
   const [showTechnicals, setShowTechnicals] = useState(true);
   const [showPerformance, setShowPerformance] = useState(false);
   
+  // Analyst recommendations for user's investments
+  const [analystData, setAnalystData] = useState({}); // { ticker: { mean, analysts, breakdown, targetPrice } }
+  
   // Alerts system
   const [alerts, setAlerts] = useState([]);
   const [showAlertModal, setShowAlertModal] = useState(false);
@@ -588,6 +621,32 @@ const BeleggenPage = () => {
     
     setStockPrices(prices);
     setLoadingPrices(false);
+    
+    // Also fetch analyst data for all tickers
+    const tickersWithPrices = Object.keys(prices);
+    if (tickersWithPrices.length > 0) {
+      fetchAnalystRecommendations(tickersWithPrices);
+    }
+  };
+
+  // Fetch analyst recommendations from our API
+  const fetchAnalystRecommendations = async (tickers) => {
+    if (!tickers || tickers.length === 0) return;
+    
+    try {
+      const response = await axios.get('/api/analyst', {
+        params: { tickers: tickers.join(',') }
+      });
+      
+      if (response.data?.results) {
+        setAnalystData(prev => ({
+          ...prev,
+          ...response.data.results
+        }));
+      }
+    } catch (error) {
+      console.error('Error fetching analyst data:', error.message);
+    }
   };
 
   const loadInvestments = async () => {
@@ -2555,8 +2614,10 @@ const BeleggenPage = () => {
 
                 {/* Analyst Meter (Analyst + Momentum) */}
                 <AnalystMeter 
-                  recommendation={null} // No analyst data for personal investments yet
+                  recommendation={investment.ticker_symbol ? analystData[investment.ticker_symbol] : null}
                   growthData={stockPrice?.growthData || null}
+                  targetPrice={analystData[investment.ticker_symbol]?.targetPrice}
+                  currentPrice={stockPrice?.current}
                 />
 
                 {/* Investment Details */}
@@ -3278,7 +3339,7 @@ const BeleggenPage = () => {
                     )}
 
                     {/* Analyst Recommendation Meter */}
-                    {sd && <AnalystMeter recommendation={sd.recommendation} growthData={sd} />}
+                    {sd && <AnalystMeter recommendation={sd.recommendation} growthData={sd} targetPrice={sd.targetPrice} currentPrice={sd.currentPrice} />}
 
                     {/* Actions */}
                     <div className="flex items-center space-x-2">
@@ -3935,7 +3996,7 @@ const BeleggenPage = () => {
                     </div>
                   </div>
                   {/* Analyst Recommendation Meter */}
-                  {sd && <AnalystMeter recommendation={sd.recommendation} growthData={sd} />}
+                  {sd && <AnalystMeter recommendation={sd.recommendation} growthData={sd} targetPrice={sd.targetPrice} currentPrice={sd.currentPrice} />}
                 </a>
               );
             })}
