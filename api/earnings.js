@@ -1,94 +1,100 @@
-// Earnings API - Yahoo Finance earnings data via quoteSummary
-// Returns next earnings date and history
+// Earnings API - Uses Alpha Vantage (server-side, no CORS issues)
+// Returns next earnings date and history per ticker
 
 const CACHE = new Map();
 const CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hours cache
 
-const convertToYahooTicker = (tvTicker) => {
-  if (!tvTicker || !tvTicker.includes(':')) return tvTicker;
-  
-  const parts = tvTicker.split(':');
-  let exchange, symbol;
-  
-  if (parts[0].length <= 6 && /^[A-Z]+$/.test(parts[0])) {
-    exchange = parts[0];
-    symbol = parts[1];
-  } else {
-    symbol = parts[0];
-    exchange = parts[1];
+const ALPHA_VANTAGE_KEY = process.env.ALPHA_VANTAGE_KEY || 'UGNO5IK8X988V0LK';
+const ALPHA_VANTAGE_BASE = 'https://www.alphavantage.co/query';
+
+// Convert TradingView ticker to clean symbol
+const cleanTicker = (ticker) => {
+  if (!ticker) return ticker;
+  // Remove exchange prefixes/suffixes
+  if (ticker.includes(':')) {
+    const parts = ticker.split(':');
+    // First part is symbol if longer, second if shorter
+    return parts[0].length <= 6 && /^[A-Z]+$/.test(parts[0]) ? parts[1] : parts[0];
   }
-  
-  const exchangeMap = {
-    'XETR': '.DE', 'XFRA': '.F', 'XAMS': '.AS', 'XBRU': '.BR',
-    'XPAR': '.PA', 'XLON': '.L', 'XSWX': '.SW', 'XMIL': '.MI',
-    'XLIS': '.LS', 'XSTO': '.ST', 'XCSE': '.CO', 'XHEL': '.HE',
-    'XOSL': '.OL', 'XMAD': '.MC', 'XHKG': '.HK', 'XTKS': '.T',
-    'XASX': '.AX', 'XTSE': '.TO', 'XSHG': '.SS', 'XSHE': '.SZ',
-    'NASDAQ': '', 'NYSE': '', 'XNAS': '', 'XNYS': '', 'AMEX': '',
-  };
-  
-  const suffix = exchangeMap[exchange];
-  if (suffix === undefined) return symbol;
-  return symbol + suffix;
+  // Remove suffixes like .DE, .AS
+  return ticker.replace(/\.(DE|F|AS|L|PA|MI|SW|BR|LS|ST|CO|HE|OL|MC|HK|T|AX|TO|SS|SZ)$/i, '');
 };
 
-const fetchEarnings = async (ticker) => {
-  const yahooTicker = convertToYahooTicker(ticker);
-  
+// Fetch earnings from Alpha Vantage EARNINGS endpoint
+const fetchAlphaVantageEarnings = async (symbol) => {
   try {
-    // Use Yahoo Finance quoteSummary for earnings data
-    const url = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${yahooTicker}?modules=earnings,calendarEvents,earningsHistory,price`;
+    const url = `${ALPHA_VANTAGE_BASE}?function=EARNINGS&symbol=${symbol}&apikey=${ALPHA_VANTAGE_KEY}`;
+    const response = await fetch(url);
     
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
-      }
-    });
-    
-    if (!response.ok) {
-      throw new Error(`Yahoo returned ${response.status}`);
-    }
+    if (!response.ok) return null;
     
     const data = await response.json();
-    const result = data?.quoteSummary?.result?.[0];
     
-    if (!result) return null;
-    
-    const calendar = result.calendarEvents?.earnings;
-    const history = result.earningsHistory?.history || [];
-    const price = result.price;
-    
-    let nextEarningsDate = null;
-    if (calendar?.earningsDate?.[0]?.raw) {
-      nextEarningsDate = calendar.earningsDate[0].raw * 1000; // Convert to ms
+    if (data.Note || data.Information) {
+      console.log(`Alpha Vantage rate limit/info for ${symbol}:`, data.Note || data.Information);
+      return null;
     }
     
-    const earningsHistory = history
-      .filter(h => h.epsActual?.raw != null)
-      .map(h => ({
-        date: h.quarter?.fmt,
-        epsActual: h.epsActual?.raw,
-        epsEstimate: h.epsEstimate?.raw,
-        epsDifference: h.epsDifference?.raw,
-        surprisePercent: h.surprisePercent?.raw,
-      }))
-      .reverse(); // Most recent first
+    const annualEarnings = data.annualEarnings || [];
+    const quarterlyEarnings = data.quarterlyEarnings || [];
+    
+    if (quarterlyEarnings.length === 0 && annualEarnings.length === 0) {
+      return null;
+    }
+    
+    // Get earnings history (last 8 quarters)
+    const history = quarterlyEarnings.slice(0, 8).map(q => ({
+      date: q.fiscalDateEnding,
+      reportedDate: q.reportedDate,
+      epsActual: parseFloat(q.reportedEPS) || null,
+      epsEstimate: parseFloat(q.estimatedEPS) || null,
+      surprisePercent: parseFloat(q.surprisePercentage) || null,
+    }));
+    
+    // Find next earnings date - try EARNINGS_CALENDAR endpoint
+    let nextEarningsDate = null;
+    let estimatedEPS = null;
+    
+    try {
+      const calUrl = `${ALPHA_VANTAGE_BASE}?function=EARNINGS_CALENDAR&symbol=${symbol}&apikey=${ALPHA_VANTAGE_KEY}`;
+      const calResponse = await fetch(calUrl);
+      const csvText = await calResponse.text();
+      
+      if (csvText && csvText.includes('symbol')) {
+        const lines = csvText.trim().split('\n');
+        if (lines.length > 1) {
+          const headers = lines[0].split(',').map(h => h.trim());
+          const symbolIdx = headers.indexOf('symbol');
+          const reportDateIdx = headers.indexOf('reportDate');
+          const estimateIdx = headers.indexOf('estimate');
+          
+          for (let i = 1; i < lines.length; i++) {
+            const cols = lines[i].split(',').map(c => c.trim());
+            if (cols[symbolIdx] === symbol && cols[reportDateIdx]) {
+              const date = new Date(cols[reportDateIdx]);
+              if (date >= new Date()) {
+                nextEarningsDate = date.getTime();
+                estimatedEPS = parseFloat(cols[estimateIdx]) || null;
+                break;
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      // Calendar fetch failed, continue without next date
+    }
     
     return {
-      ticker,
-      yahooTicker,
-      name: price?.shortName || price?.longName || ticker,
-      currency: price?.currency || 'USD',
+      symbol,
       nextEarningsDate,
-      estimatedEPS: calendar?.earningsAverage?.raw || null,
-      estimatedRevenueLow: calendar?.revenueLow?.raw || null,
-      estimatedRevenueHigh: calendar?.revenueHigh?.raw || null,
-      history: earningsHistory,
-      timestamp: new Date().toISOString()
+      estimatedEPS,
+      history,
+      currency: 'USD',
     };
     
   } catch (error) {
-    console.error(`Earnings error for ${ticker}:`, error.message);
+    console.error(`Alpha Vantage error for ${symbol}:`, error.message);
     return null;
   }
 };
@@ -123,22 +129,24 @@ module.exports = async function handler(req, res) {
   try {
     const results = {};
     
-    // Fetch in parallel batches of 5
-    const batchSize = 5;
-    for (let i = 0; i < tickerList.length; i += batchSize) {
-      const batch = tickerList.slice(i, i + batchSize);
-      const batchResults = await Promise.all(batch.map(t => fetchEarnings(t)));
+    // Process serially to respect Alpha Vantage rate limit (5 calls/min on free tier)
+    // Limit to 10 tickers to stay within rate limits
+    const limited = tickerList.slice(0, 10);
+    
+    for (const originalTicker of limited) {
+      const symbol = cleanTicker(originalTicker);
+      const data = await fetchAlphaVantageEarnings(symbol);
       
-      batch.forEach((ticker, idx) => {
-        if (batchResults[idx]) {
-          results[ticker] = batchResults[idx];
-        }
-      });
-      
-      // Small delay between batches
-      if (i + batchSize < tickerList.length) {
-        await new Promise(r => setTimeout(r, 200));
+      if (data) {
+        results[originalTicker] = {
+          ...data,
+          ticker: originalTicker,
+          name: originalTicker,
+        };
       }
+      
+      // 200ms delay between calls
+      await new Promise(r => setTimeout(r, 200));
     }
     
     const responseData = {
