@@ -374,45 +374,44 @@ export class EarningsCalendar {
     }
   }
 
-  // Fetch earnings for multiple tickers in parallel batches
+  // Fetch earnings for multiple tickers via Vercel API
   async fetchMultipleEarnings(tickerList) {
-    // tickerList can be array of strings OR array of {ticker, name} objects
     const normalized = tickerList.map(t => 
       typeof t === 'string' ? { ticker: t, name: null } : t
     );
 
-    // Deduplicate by yahoo ticker
-    const seen = new Set();
-    const unique = normalized.filter(t => {
-      const yt = convertToYahooTicker(t.ticker);
-      if (seen.has(yt)) return false;
-      seen.add(yt);
-      return true;
-    });
+    if (normalized.length === 0) return {};
 
-    // Process in parallel batches of 5
-    const results = {};
-    const BATCH_SIZE = 5;
-    
-    for (let i = 0; i < unique.length; i += BATCH_SIZE) {
-      const batch = unique.slice(i, i + BATCH_SIZE);
-      const batchResults = await Promise.all(
-        batch.map(t => this.fetchEarnings(t.ticker, t.name))
-      );
-      
-      batchResults.forEach((earnings, idx) => {
-        if (earnings) {
-          results[batch[idx].ticker] = earnings;
-        }
+    try {
+      const tickerStr = normalized.map(t => t.ticker).join(',');
+      const response = await axios.get(`/api/earnings`, {
+        params: { tickers: tickerStr },
+        timeout: 30000
       });
-
-      // Small delay between batches to be gentle on the API
-      if (i + BATCH_SIZE < unique.length) {
-        await new Promise(resolve => setTimeout(resolve, 300));
-      }
+      
+      const apiResults = response.data.results || {};
+      const results = {};
+      
+      // Convert dates from epoch ms to Date objects and add user-supplied names
+      Object.entries(apiResults).forEach(([ticker, data]) => {
+        const userTicker = normalized.find(t => t.ticker === ticker);
+        results[ticker] = {
+          ...data,
+          nextEarningsDate: data.nextEarningsDate ? new Date(data.nextEarningsDate) : null,
+          displayName: userTicker?.name || data.name || ticker,
+          history: (data.history || []).map(h => ({
+            ...h,
+            date: h.date ? new Date(h.date) : null,
+            surprise: h.surprisePercent
+          }))
+        };
+      });
+      
+      return results;
+    } catch (error) {
+      console.error('Earnings API error:', error.message);
+      return {};
     }
-
-    return results;
   }
 
   // Get upcoming earnings (default: next 90 days, configurable)

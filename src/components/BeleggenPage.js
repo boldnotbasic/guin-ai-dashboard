@@ -1256,43 +1256,37 @@ const BeleggenPage = () => {
   const fetchStockNews = async () => {
     if (userTickers.length === 0) return;
     setLoadingNews(true);
-    const allNews = [];
-    const tickersToFetch = userTickers.slice(0, 6); // Limit to 6 tickers
-
-    for (const { symbol, name } of tickersToFetch) {
-      try {
-        const yahooSymbol = symbol.includes(':') ? tradingViewToYahoo(symbol) : symbol;
-        const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${yahooSymbol}&newsCount=3&quotesCount=0`;
-        const response = await axios.get(`${CORS_PROXY}${encodeURIComponent(url)}`);
-        const news = response.data.news || [];
-        news.forEach(n => {
-          allNews.push({
-            title: n.title,
-            link: n.link,
-            publisher: n.publisher,
-            publishedAt: n.providerPublishTime ? new Date(n.providerPublishTime * 1000) : null,
-            thumbnail: n.thumbnail?.resolutions?.[0]?.url,
-            relatedTicker: symbol,
-            relatedName: name,
-          });
+    try {
+      const tickersToFetch = userTickers.slice(0, 6).map(t => {
+        return t.symbol.includes(':') ? tradingViewToYahoo(t.symbol) : t.symbol;
+      });
+      
+      const response = await axios.get(`/api/news`, {
+        params: { tickers: tickersToFetch.join(',') }
+      });
+      
+      const news = (response.data.news || []).map(n => {
+        // Find matching original symbol
+        const matched = userTickers.find(t => {
+          const ys = t.symbol.includes(':') ? tradingViewToYahoo(t.symbol) : t.symbol;
+          return ys === n.query || (n.relatedTickers || []).includes(ys);
         });
-      } catch (e) {
-        continue;
-      }
+        return {
+          title: n.title,
+          link: n.link,
+          publisher: n.publisher,
+          publishedAt: n.publishedAt ? new Date(n.publishedAt) : null,
+          thumbnail: n.thumbnail,
+          relatedTicker: matched?.symbol || n.ticker,
+          relatedName: matched?.name,
+        };
+      });
+      
+      setStockNews(news.slice(0, 12));
+    } catch (e) {
+      console.error('Stock news error:', e);
+      setStockNews([]);
     }
-
-    // Sort by date, newest first, remove duplicates by title
-    const seen = new Set();
-    const uniqueNews = allNews
-      .sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0))
-      .filter(n => {
-        if (seen.has(n.title)) return false;
-        seen.add(n.title);
-        return true;
-      })
-      .slice(0, 12);
-
-    setStockNews(uniqueNews);
     setLoadingNews(false);
   };
 
@@ -1379,41 +1373,26 @@ const BeleggenPage = () => {
   // Fetch screener/market news
   const fetchScreenerNews = async () => {
     setLoadingScreenerNews(true);
-    const queries = ['stock market today', 'growth stocks investing', 'NVIDIA AI stocks', 'S&P 500 market', 'tech stocks earnings'];
-    const allNews = [];
-
-    for (const query of queries) {
-      try {
-        const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&newsCount=4&quotesCount=0`;
-        const response = await axios.get(`${CORS_PROXY}${encodeURIComponent(url)}`);
-        const news = response.data.news || [];
-        news.forEach(n => {
-          const ticker = extractTicker(n.title, n.link);
-          allNews.push({
-            title: n.title,
-            link: n.link,
-            publisher: n.publisher,
-            publishedAt: n.providerPublishTime ? new Date(n.providerPublishTime * 1000) : null,
-            thumbnail: n.thumbnail?.resolutions?.[0]?.url,
-            ticker,
-          });
-        });
-      } catch (e) {
-        continue;
-      }
+    try {
+      const queries = ['stock market today', 'growth stocks investing', 'NVIDIA AI stocks', 'S&P 500 market', 'tech stocks earnings'];
+      const response = await axios.get(`/api/news`, {
+        params: { queries: queries.join('|') }
+      });
+      
+      const news = (response.data.news || []).map(n => ({
+        title: n.title,
+        link: n.link,
+        publisher: n.publisher,
+        publishedAt: n.publishedAt ? new Date(n.publishedAt) : null,
+        thumbnail: n.thumbnail,
+        ticker: n.ticker || extractTicker(n.title, n.link),
+      }));
+      
+      setScreenerNews(news.slice(0, 15));
+    } catch (e) {
+      console.error('News fetch error:', e);
+      setScreenerNews([]);
     }
-
-    const seen = new Set();
-    const uniqueNews = allNews
-      .sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0))
-      .filter(n => {
-        if (seen.has(n.title)) return false;
-        seen.add(n.title);
-        return true;
-      })
-      .slice(0, 15);
-
-    setScreenerNews(uniqueNews);
     setLoadingScreenerNews(false);
   };
 
@@ -1441,16 +1420,10 @@ const BeleggenPage = () => {
     if (!query || query.length < 1) { setWatchlistResults([]); return; }
     setLoadingWlSearch(true);
     try {
-      const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=8&newsCount=0`;
-      const res = await axios.get(`${CORS_PROXY}${encodeURIComponent(url)}`);
-      const quotes = (res.data.quotes || []).filter(q => q.symbol && q.shortname).map(q => ({
-        ticker: q.symbol,
-        name: q.shortname || q.longname || q.symbol,
-        sector: q.typeDisp || q.quoteType || '',
-        exchange: q.exchDisp || q.exchange || '',
-      }));
-      setWatchlistResults(quotes);
+      const res = await axios.get(`/api/search`, { params: { q: query, count: 8 } });
+      setWatchlistResults(res.data.results || []);
     } catch (e) {
+      console.error('Search error:', e);
       setWatchlistResults([]);
     }
     setLoadingWlSearch(false);
