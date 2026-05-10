@@ -1,161 +1,142 @@
-// FMP Analyst Recommendations API
-// Uses Financial Modeling Prep for reliable analyst data
+// FMP Analyst Recommendations API - Uses NEW /stable/ endpoints
+// Returns real analyst ratings: Strong Buy, Buy, Hold, Sell, Strong Sell
 
-const FMP_BASE_URL = 'https://financialmodelingprep.com/api/v3';
+const FMP_BASE_URL = 'https://financialmodelingprep.com/stable';
 const FMP_API_KEY = process.env.FMP_API_KEY;
 
 const CACHE = new Map();
 const CACHE_TTL = 60 * 60 * 1000; // 1 hour cache
 
-// Fetch analyst estimates from FMP
-const fetchFMPAnalystData = async (ticker) => {
-  if (!FMP_API_KEY) {
-    throw new Error('FMP_API_KEY not configured');
+// Convert TradingView ticker to plain symbol
+const cleanTicker = (ticker) => {
+  if (!ticker) return ticker;
+  // Remove exchange prefix (NASDAQ:AAPL -> AAPL)
+  if (ticker.includes(':')) {
+    const parts = ticker.split(':');
+    // Take the part that looks like a symbol
+    return parts.find(p => /^[A-Z]{1,6}$/.test(p)) || parts[1] || ticker;
   }
-  
+  return ticker;
+};
+
+// Fetch analyst grades historical (Strong Buy/Buy/Hold/Sell/Strong Sell counts)
+const fetchGradesHistorical = async (symbol) => {
   try {
-    // Analyst estimates endpoint
-    const url = `${FMP_BASE_URL}/analyst-estimates/${ticker}?apikey=${FMP_API_KEY}`;
+    const url = `${FMP_BASE_URL}/grades-historical?symbol=${symbol}&apikey=${FMP_API_KEY}`;
     const response = await fetch(url);
     
     if (!response.ok) {
-      console.log(`FMP analyst data failed for ${ticker}: ${response.status}`);
+      console.log(`FMP grades-historical failed for ${symbol}: ${response.status}`);
       return null;
     }
     
     const data = await response.json();
     
-    if (!data || data.length === 0) {
+    if (!Array.isArray(data) || data.length === 0) {
       return null;
     }
     
-    // Get most recent estimate
+    // Get most recent breakdown
     const latest = data[0];
     
-    // Calculate mean rating from estimates
-    // FMP provides: estimatedRevenueLow, estimatedRevenueHigh, estimatedRevenueAvg
-    // We need to fetch grade data separately
-    
     return {
-      ticker: ticker,
-      estimatedRevenue: latest.estimatedRevenueAvg,
-      estimatedEPS: latest.estimatedEpsAvg,
-      numberOfAnalysts: latest.numberAnalystEstimatedRevenue || null,
-      date: latest.date
+      strongBuy: latest.analystRatingsStrongBuy || 0,
+      buy: latest.analystRatingsBuy || 0,
+      hold: latest.analystRatingsHold || 0,
+      sell: latest.analystRatingsSell || 0,
+      strongSell: latest.analystRatingsStrongSell || 0,
+      date: latest.date,
     };
-  } catch (error) {
-    console.error(`FMP analyst fetch error for ${ticker}:`, error.message);
+  } catch (e) {
+    console.log(`FMP grades-historical error for ${symbol}:`, e.message);
     return null;
   }
 };
 
-// Fetch stock grade (Buy/Hold/Sell) from FMP
-const fetchFMPGrade = async (ticker) => {
-  if (!FMP_API_KEY) {
-    console.error('FMP_API_KEY not configured');
-    throw new Error('FMP_API_KEY not configured');
-  }
-  
+// Fetch price target summary
+const fetchPriceTarget = async (symbol) => {
   try {
-    const url = `${FMP_BASE_URL}/grade/${ticker}?apikey=${FMP_API_KEY}`;
-    console.log(`Fetching FMP grade for ${ticker}: ${url}`);
+    const url = `${FMP_BASE_URL}/price-target-summary?symbol=${symbol}&apikey=${FMP_API_KEY}`;
     const response = await fetch(url);
     
-    if (!response.ok) {
-      console.log(`FMP grade failed for ${ticker}: ${response.status} ${response.statusText}`);
-      return null;
-    }
+    if (!response.ok) return null;
     
     const data = await response.json();
-    console.log(`FMP grade data for ${ticker}:`, JSON.stringify(data).substring(0, 500));
+    if (!Array.isArray(data) || data.length === 0) return null;
     
-    if (!data || data.length === 0) {
-      console.log(`FMP grade returned no data for ${ticker}`);
-      return null;
-    }
-    
-    // Aggregate recent grades (last 30 days)
-    const recentGrades = data.slice(0, 10); // Last 10 grades
-    
-    let buyCount = 0;
-    let holdCount = 0;
-    let sellCount = 0;
-    
-    recentGrades.forEach(grade => {
-      const g = grade.newGrade?.toLowerCase() || '';
-      if (g.includes('buy') || g.includes('outperform') || g.includes('overweight')) {
-        buyCount++;
-      } else if (g.includes('hold') || g.includes('neutral') || g.includes('equal')) {
-        holdCount++;
-      } else if (g.includes('sell') || g.includes('underperform') || g.includes('underweight')) {
-        sellCount++;
-      }
-    });
-    
-    const total = buyCount + holdCount + sellCount;
-    
-    if (total === 0) return null;
-    
-    // Calculate weighted mean (1=Strong Buy, 5=Strong Sell)
-    // Simplified: Buy=1.5, Hold=3, Sell=4.5
-    const weightedSum = (buyCount * 1.5) + (holdCount * 3) + (sellCount * 4.5);
-    const mean = weightedSum / total;
-    
+    const latest = data[0];
     return {
-      mean: mean,
-      analysts: total,
-      breakdown: {
-        strongBuy: Math.floor(buyCount * 0.4),
-        buy: Math.ceil(buyCount * 0.6),
-        hold: holdCount,
-        sell: Math.ceil(sellCount * 0.6),
-        strongSell: Math.floor(sellCount * 0.4),
-      },
-      recentGrades: recentGrades.slice(0, 5).map(g => ({
-        firm: g.gradingCompany,
-        grade: g.newGrade,
-        date: g.date
-      }))
+      targetPrice: latest.lastMonthAvgPriceTarget || latest.lastQuarterAvgPriceTarget || latest.lastYearAvgPriceTarget,
+      analystCount: latest.lastMonthCount || latest.lastQuarterCount || latest.lastYearCount || 0,
     };
-  } catch (error) {
-    console.error(`FMP grade fetch error for ${ticker}:`, error.message);
+  } catch (e) {
     return null;
   }
 };
 
-// Fetch price target from FMP
-const fetchFMPPriceTarget = async (ticker) => {
-  if (!FMP_API_KEY) {
-    throw new Error('FMP_API_KEY not configured');
-  }
-  
+// Fetch ratings snapshot (overall score)
+const fetchRatingsSnapshot = async (symbol) => {
   try {
-    const url = `${FMP_BASE_URL}/price-target/${ticker}?apikey=${FMP_API_KEY}`;
+    const url = `${FMP_BASE_URL}/ratings-snapshot?symbol=${symbol}&apikey=${FMP_API_KEY}`;
     const response = await fetch(url);
     
-    if (!response.ok) {
-      return null;
-    }
+    if (!response.ok) return null;
     
     const data = await response.json();
-    
-    if (!data || data.length === 0) {
-      return null;
-    }
-    
-    // Get most recent price target
-    const latest = data[0];
+    if (!Array.isArray(data) || data.length === 0) return null;
     
     return {
-      targetPrice: latest.adjPriceTarget,
-      targetHigh: latest.priceTargetHigh,
-      targetLow: latest.priceTargetLow,
-      analysts: latest.numberOfAnalysts || null
+      rating: data[0].rating,
+      overallScore: data[0].overallScore,
     };
-  } catch (error) {
-    console.error(`FMP price target error for ${ticker}:`, error.message);
+  } catch (e) {
     return null;
   }
+};
+
+// Get analyst data for a single ticker
+const getAnalystData = async (ticker) => {
+  const symbol = cleanTicker(ticker);
+  
+  // Fetch in parallel
+  const [grades, priceTarget, ratings] = await Promise.all([
+    fetchGradesHistorical(symbol),
+    fetchPriceTarget(symbol),
+    fetchRatingsSnapshot(symbol),
+  ]);
+  
+  if (!grades) return null;
+  
+  const total = grades.strongBuy + grades.buy + grades.hold + grades.sell + grades.strongSell;
+  
+  if (total === 0) return null;
+  
+  // Calculate weighted mean (1=Strong Buy, 5=Strong Sell)
+  const weightedSum = 
+    (grades.strongBuy * 1) +
+    (grades.buy * 2) +
+    (grades.hold * 3) +
+    (grades.sell * 4) +
+    (grades.strongSell * 5);
+  const mean = weightedSum / total;
+  
+  return {
+    ticker: ticker,
+    mean: mean,
+    analysts: total,
+    breakdown: {
+      strongBuy: grades.strongBuy,
+      buy: grades.buy,
+      hold: grades.hold,
+      sell: grades.sell,
+      strongSell: grades.strongSell,
+    },
+    targetPrice: priceTarget?.targetPrice || null,
+    rating: ratings?.rating || null,
+    overallScore: ratings?.overallScore || null,
+    date: grades.date,
+    source: 'FMP'
+  };
 };
 
 // Main handler
@@ -174,7 +155,10 @@ module.exports = async function handler(req, res) {
   }
   
   if (!FMP_API_KEY) {
-    return res.status(500).json({ error: 'FMP_API_KEY not configured in environment variables' });
+    return res.status(500).json({ 
+      error: 'FMP_API_KEY not configured in environment variables',
+      hint: 'Add FMP_API_KEY to your Vercel environment variables'
+    });
   }
   
   const tickerList = tickers.split(',').map(t => t.trim()).filter(t => t);
@@ -193,39 +177,28 @@ module.exports = async function handler(req, res) {
   try {
     const results = {};
     
-    // Fetch data for each ticker (limit to 20 to stay within rate limits)
-    const limited = tickerList.slice(0, 20);
+    // Process in batches to respect rate limits (limit to 25 tickers)
+    const limited = tickerList.slice(0, 25);
     
-    await Promise.all(limited.map(async (ticker) => {
+    // Fetch all in parallel
+    const dataPromises = limited.map(async (ticker) => {
       try {
-        // Fetch grade (most important for Buy/Hold/Sell)
-        const grade = await fetchFMPGrade(ticker);
-        
-        // Fetch price target
-        const priceTarget = await fetchFMPPriceTarget(ticker);
-        
-        if (grade || priceTarget) {
-          results[ticker] = {
-            ticker: ticker,
-            mean: grade?.mean || null,
-            analysts: grade?.analysts || priceTarget?.analysts || null,
-            breakdown: grade?.breakdown || null,
-            targetPrice: priceTarget?.targetPrice || null,
-            targetHigh: priceTarget?.targetHigh || null,
-            targetLow: priceTarget?.targetLow || null,
-            recentGrades: grade?.recentGrades || null,
-            source: 'FMP'
-          };
+        const data = await getAnalystData(ticker);
+        if (data) {
+          results[ticker] = data;
         }
       } catch (error) {
         console.error(`Error fetching ${ticker}:`, error.message);
       }
-    }));
+    });
+    
+    await Promise.all(dataPromises);
     
     const responseData = {
       results,
       count: Object.keys(results).length,
-      source: 'Financial Modeling Prep',
+      total: tickerList.length,
+      source: 'Financial Modeling Prep (stable)',
       timestamp: new Date().toISOString()
     };
     
