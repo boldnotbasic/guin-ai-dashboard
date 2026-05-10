@@ -129,11 +129,11 @@ const AnalystMeter = ({ recommendation, growthData, targetPrice, currentPrice })
             style={{ left: `calc(${Math.max(2, Math.min(98, primaryPct))}% - 7px)`, borderColor: getColor(primaryPct) }}
           />
         </div>
-        {/* Legend with colored dots */}
+        {/* Legend with colored dots and counts */}
         <div className="flex items-center justify-between mt-2 flex-wrap gap-x-2 gap-y-1">
           <div className="flex items-center space-x-1">
             <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: '#059669' }}></span>
-            <span className="text-[9px] text-white/60">Kopen</span>
+            <span className="text-[9px] text-white/60">Kopen {breakdown ? `(S:${breakdown.strongBuy} B:${breakdown.buy})` : ''}</span>
           </div>
           <div className="flex items-center space-x-1">
             <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: '#34d399' }}></span>
@@ -141,7 +141,7 @@ const AnalystMeter = ({ recommendation, growthData, targetPrice, currentPrice })
           </div>
           <div className="flex items-center space-x-1">
             <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: '#f59e0b' }}></span>
-            <span className="text-[9px] text-white/60">Houden</span>
+            <span className="text-[9px] text-white/60">Houden {breakdown ? `(${breakdown.hold})` : ''}</span>
           </div>
           <div className="flex items-center space-x-1">
             <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: '#f97316' }}></span>
@@ -149,10 +149,10 @@ const AnalystMeter = ({ recommendation, growthData, targetPrice, currentPrice })
           </div>
           <div className="flex items-center space-x-1">
             <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: '#ef4444' }}></span>
-            <span className="text-[9px] text-white/60">Verkopen</span>
+            <span className="text-[9px] text-white/60">Verkopen {breakdown ? `(S:${breakdown.sell} S:${breakdown.strongSell})` : ''}</span>
           </div>
         </div>
-        {/* Breakdown if available (only for analyst data) */}
+        {/* Breakdown summary if available (only for analyst data) */}
         {showAnalystAsPrimary && breakdown && (
           <div className="flex items-center justify-between mt-2 text-[9px]">
             <span className="text-green-400">{breakdown.strongBuy + breakdown.buy} Buy</span>
