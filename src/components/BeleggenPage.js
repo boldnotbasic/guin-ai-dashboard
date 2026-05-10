@@ -123,20 +123,38 @@ const AnalystMeter = ({ recommendation, growthData, targetPrice, currentPrice })
           <span className="text-white/60 text-xs font-medium">{primaryLabel}</span>
           <span className="text-xs font-bold" style={{ color: getColor(primaryPct) }}>{getLabel(primaryPct)}</span>
         </div>
-        <div className="relative h-8 rounded-lg overflow-hidden" style={{ background: segmentedGradient }}>
-          {/* Show numbers in each segment if we have breakdown */}
-          {showAnalystAsPrimary && breakdown && (
-            <div className="absolute inset-0 flex items-center justify-between px-2 text-[10px] font-bold text-white/90">
-              <span className="flex-1 text-center">{breakdown.strongBuy + breakdown.buy}</span>
-              <span className="flex-1 text-center">{breakdown.hold}</span>
-              <span className="flex-1 text-center">{breakdown.sell + breakdown.strongSell}</span>
-            </div>
-          )}
-          {/* Indicator dot */}
+        <div className="relative pt-3">
+          {/* Arrow indicator ABOVE the bar */}
           <div
-            className="absolute top-[-2px] w-4 h-4 rounded-full bg-white border-2 shadow-lg z-10"
-            style={{ left: `calc(${Math.max(2, Math.min(98, primaryPct))}% - 8px)`, borderColor: getColor(primaryPct) }}
-          />
+            className="absolute top-0 z-10 transition-all"
+            style={{ left: `calc(${Math.max(2, Math.min(98, primaryPct))}% - 6px)` }}
+          >
+            <svg width="12" height="10" viewBox="0 0 12 10" style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.4))' }}>
+              <path d="M6 10 L0 0 L12 0 Z" fill={getColor(primaryPct)} stroke="white" strokeWidth="1" />
+            </svg>
+          </div>
+          {/* The colored bar with numbers */}
+          <div className="relative h-8 rounded-lg overflow-hidden" style={{ background: segmentedGradient }}>
+            {/* Show numbers in each segment if we have breakdown */}
+            {breakdown ? (
+              <div className="absolute inset-0 flex items-center text-[11px] font-bold text-white" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.6)' }}>
+                <span className="flex-1 text-center" title="Strong Buy + Buy">{breakdown.strongBuy + breakdown.buy}</span>
+                <span className="flex-1 text-center text-white/70"></span>
+                <span className="flex-1 text-center" title="Hold">{breakdown.hold}</span>
+                <span className="flex-1 text-center text-white/70"></span>
+                <span className="flex-1 text-center" title="Sell + Strong Sell">{breakdown.sell + breakdown.strongSell}</span>
+              </div>
+            ) : (
+              /* Fallback labels when no breakdown */
+              <div className="absolute inset-0 flex items-center text-[9px] font-medium text-white/80">
+                <span className="flex-1 text-center">Kopen</span>
+                <span className="flex-1 text-center">Opb.</span>
+                <span className="flex-1 text-center">Houden</span>
+                <span className="flex-1 text-center">Afb.</span>
+                <span className="flex-1 text-center">Verkopen</span>
+              </div>
+            )}
+          </div>
         </div>
         {/* Legend with colored dots and counts */}
         <div className="flex items-center justify-between mt-2 flex-wrap gap-x-2 gap-y-1">
