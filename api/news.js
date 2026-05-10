@@ -1,9 +1,63 @@
-// News API - Yahoo Finance news search
-// No CORS issues, returns market news
+// News API - FMP ticker-specific news + Yahoo fallback for general queries
+// FMP gives REAL ticker news (not random soccer/football news like Yahoo does)
 
 const CACHE = new Map();
 const CACHE_TTL = 15 * 60 * 1000; // 15 minutes cache
 
+// Clean ticker to plain symbol (strip exchange prefix/suffix)
+const cleanTicker = (ticker) => {
+  if (!ticker) return ticker;
+  // Strip exchange prefix like NASDAQ:AAPL, XETR:JEDI, etc.
+  if (ticker.includes(':')) {
+    const parts = ticker.split(':');
+    // Find part that looks like a ticker (1-6 uppercase letters)
+    const tickerPart = parts.find(p => /^[A-Z]{1,6}$/.test(p));
+    if (tickerPart) return tickerPart;
+  }
+  // Strip exchange suffix like .DE, .L, .PA, .AS
+  if (ticker.includes('.')) {
+    return ticker.split('.')[0];
+  }
+  return ticker;
+};
+
+// Fetch news from FMP for a specific ticker (returns REAL ticker news)
+const fetchFMPNewsForTicker = async (ticker) => {
+  const FMP_API_KEY = process.env.FMP_API_KEY;
+  if (!FMP_API_KEY) return [];
+  
+  const symbol = cleanTicker(ticker);
+  
+  try {
+    // FMP stable endpoint for ticker-specific news
+    const url = `https://financialmodelingprep.com/stable/news/stock?symbols=${symbol}&limit=10&apikey=${FMP_API_KEY}`;
+    const response = await fetch(url);
+    
+    if (!response.ok) {
+      console.log(`FMP news failed for ${symbol}: ${response.status}`);
+      return [];
+    }
+    
+    const data = await response.json();
+    if (!Array.isArray(data)) return [];
+    
+    return data.map(article => ({
+      title: article.title,
+      link: article.url || article.link,
+      publisher: article.site || article.publisher || 'Unknown',
+      publishedAt: article.publishedDate ? new Date(article.publishedDate).getTime() : Date.now(),
+      ticker: article.symbol || symbol,
+      relatedTickers: [article.symbol || symbol],
+      thumbnail: article.image || null,
+      query: ticker
+    }));
+  } catch (error) {
+    console.error(`FMP news error for ${symbol}:`, error.message);
+    return [];
+  }
+};
+
+// Yahoo search for general market queries (fallback only)
 const fetchNewsForQuery = async (query) => {
   try {
     const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&newsCount=10&quotesCount=0`;
@@ -17,7 +71,16 @@ const fetchNewsForQuery = async (query) => {
     if (!response.ok) return [];
     
     const data = await response.json();
-    return data.news || [];
+    return (data.news || []).map(article => ({
+      title: article.title,
+      link: article.link || article.url,
+      publisher: article.publisher || 'Unknown',
+      publishedAt: article.providerPublishTime ? article.providerPublishTime * 1000 : Date.now(),
+      ticker: article.relatedTickers?.[0] || null,
+      relatedTickers: article.relatedTickers || [],
+      thumbnail: article.thumbnail?.resolutions?.[0]?.url || null,
+      query
+    }));
     
   } catch (error) {
     console.error(`News error for ${query}:`, error.message);
@@ -35,49 +98,41 @@ module.exports = async function handler(req, res) {
   
   const { tickers, queries } = req.query;
   
-  // Build search queries
-  let searchQueries = [];
-  if (tickers) {
-    searchQueries = tickers.split(',').map(t => t.trim()).filter(t => t);
-  } else if (queries) {
-    searchQueries = queries.split('|').map(q => q.trim()).filter(q => q);
-  } else {
-    // Default market queries
-    searchQueries = ['stock market', 'S&P 500', 'tech stocks', 'NVIDIA', 'AI stocks'];
-  }
+  // Build search inputs
+  const tickerList = tickers ? tickers.split(',').map(t => t.trim()).filter(t => t) : [];
+  const queryList = queries ? queries.split('|').map(q => q.trim()).filter(q => q) : [];
+  
+  // Default to general market queries if nothing specified
+  const useDefaultQueries = tickerList.length === 0 && queryList.length === 0;
+  const finalQueries = useDefaultQueries 
+    ? ['stock market', 'S&P 500', 'tech stocks', 'NVIDIA', 'AI stocks']
+    : queryList;
   
   // Check cache
-  const cacheKey = searchQueries.join(',');
+  const cacheKey = `${tickerList.join(',')}|${finalQueries.join(',')}`;
   const cached = CACHE.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
     return res.json({ ...cached.data, cached: true });
   }
   
   try {
-    // Fetch news in parallel
-    const allNewsResults = await Promise.all(
-      searchQueries.slice(0, 5).map(q => fetchNewsForQuery(q))
-    );
+    // Fetch ticker news from FMP (real ticker-specific news, no football/random results!)
+    // Fetch query news from Yahoo (general market searches)
+    const [tickerNewsResults, queryNewsResults] = await Promise.all([
+      Promise.all(tickerList.slice(0, 8).map(t => fetchFMPNewsForTicker(t))),
+      Promise.all(finalQueries.slice(0, 5).map(q => fetchNewsForQuery(q)))
+    ]);
     
     // Flatten and deduplicate
     const allNews = [];
     const seenLinks = new Set();
     
-    allNewsResults.forEach((newsArr, queryIdx) => {
+    [...tickerNewsResults, ...queryNewsResults].forEach(newsArr => {
       newsArr.forEach(article => {
-        const link = article.link || article.url;
+        const link = article.link;
         if (link && !seenLinks.has(link)) {
           seenLinks.add(link);
-          allNews.push({
-            title: article.title,
-            link: link,
-            publisher: article.publisher || 'Unknown',
-            publishedAt: article.providerPublishTime ? article.providerPublishTime * 1000 : Date.now(),
-            ticker: article.relatedTickers?.[0] || null,
-            relatedTickers: article.relatedTickers || [],
-            thumbnail: article.thumbnail?.resolutions?.[0]?.url || null,
-            query: searchQueries[queryIdx]
-          });
+          allNews.push(article);
         }
       });
     });
@@ -89,7 +144,8 @@ module.exports = async function handler(req, res) {
     const responseData = {
       news: topNews,
       count: topNews.length,
-      queries: searchQueries,
+      queries: [...tickerList, ...finalQueries],
+      tickers: tickerList,
       timestamp: new Date().toISOString()
     };
     
