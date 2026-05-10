@@ -52,21 +52,25 @@ const fetchFMPAnalystData = async (ticker) => {
 // Fetch stock grade (Buy/Hold/Sell) from FMP
 const fetchFMPGrade = async (ticker) => {
   if (!FMP_API_KEY) {
+    console.error('FMP_API_KEY not configured');
     throw new Error('FMP_API_KEY not configured');
   }
   
   try {
     const url = `${FMP_BASE_URL}/grade/${ticker}?apikey=${FMP_API_KEY}`;
+    console.log(`Fetching FMP grade for ${ticker}: ${url}`);
     const response = await fetch(url);
     
     if (!response.ok) {
-      console.log(`FMP grade failed for ${ticker}: ${response.status}`);
+      console.log(`FMP grade failed for ${ticker}: ${response.status} ${response.statusText}`);
       return null;
     }
     
     const data = await response.json();
+    console.log(`FMP grade data for ${ticker}:`, JSON.stringify(data).substring(0, 500));
     
     if (!data || data.length === 0) {
+      console.log(`FMP grade returned no data for ${ticker}`);
       return null;
     }
     
