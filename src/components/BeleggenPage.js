@@ -66,8 +66,75 @@ const isMarketOpen = (currency, exchange) => {
   return null;
 };
 
+// ETF Holdings display (top 10 holdings with percentages)
+const ETFHoldings = ({ ticker }) => {
+  // Top holdings data for major ETFs (hardcoded for now, could be API later)
+  const ETF_HOLDINGS = {
+    'SPY': [
+      { symbol: 'AAPL', name: 'Apple Inc.', weight: 7.1 },
+      { symbol: 'MSFT', name: 'Microsoft Corp.', weight: 6.8 },
+      { symbol: 'NVDA', name: 'NVIDIA Corp.', weight: 5.2 },
+      { symbol: 'AMZN', name: 'Amazon.com Inc.', weight: 3.8 },
+      { symbol: 'META', name: 'Meta Platforms Inc.', weight: 2.4 },
+      { symbol: 'GOOGL', name: 'Alphabet Inc.', weight: 2.1 },
+      { symbol: 'BRK.B', name: 'Berkshire Hathaway', weight: 1.8 },
+      { symbol: 'TSLA', name: 'Tesla Inc.', weight: 1.7 },
+      { symbol: 'LLY', name: 'Eli Lilly', weight: 1.5 },
+      { symbol: 'V', name: 'Visa Inc.', weight: 1.3 },
+    ],
+    'QQQ': [
+      { symbol: 'AAPL', name: 'Apple Inc.', weight: 8.9 },
+      { symbol: 'MSFT', name: 'Microsoft Corp.', weight: 8.5 },
+      { symbol: 'NVDA', name: 'NVIDIA Corp.', weight: 7.2 },
+      { symbol: 'AMZN', name: 'Amazon.com Inc.', weight: 5.1 },
+      { symbol: 'META', name: 'Meta Platforms Inc.', weight: 4.8 },
+      { symbol: 'GOOGL', name: 'Alphabet Inc.', weight: 2.9 },
+      { symbol: 'TSLA', name: 'Tesla Inc.', weight: 2.7 },
+      { symbol: 'AVGO', name: 'Broadcom Inc.', weight: 2.4 },
+      { symbol: 'COST', name: 'Costco', weight: 2.1 },
+      { symbol: 'NFLX', name: 'Netflix Inc.', weight: 1.9 },
+    ],
+    'ARKK': [
+      { symbol: 'TSLA', name: 'Tesla Inc.', weight: 9.7 },
+      { symbol: 'COIN', name: 'Coinbase', weight: 8.2 },
+      { symbol: 'ROKU', name: 'Roku Inc.', weight: 7.5 },
+      { symbol: 'SHOP', name: 'Shopify Inc.', weight: 6.1 },
+      { symbol: 'CRSP', name: 'CRISPR Therapeutics', weight: 5.0 },
+      { symbol: 'RBLX', name: 'Roblox Corp.', weight: 4.8 },
+      { symbol: 'PATH', name: 'UiPath Inc.', weight: 4.2 },
+      { symbol: 'PLTR', name: 'Palantir', weight: 3.9 },
+      { symbol: 'HOOD', name: 'Robinhood', weight: 3.7 },
+      { symbol: 'DKNG', name: 'DraftKings', weight: 3.5 },
+    ],
+  };
+
+  const holdings = ETF_HOLDINGS[ticker];
+  if (!holdings) return null;
+
+  return (
+    <div className="mt-2 pt-2 border-t border-white/5 mb-3">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-white/60 text-xs font-medium">Top 10 Holdings</span>
+        <span className="text-xs text-white/40">{holdings.length} posities</span>
+      </div>
+      <div className="space-y-1.5">
+        {holdings.map((holding, idx) => (
+          <div key={idx} className="flex items-center justify-between text-[10px]">
+            <div className="flex items-center space-x-2 flex-1 min-w-0">
+              <span className="text-white/40 font-mono w-4">{idx + 1}</span>
+              <span className="text-blue-400 font-medium">{holding.symbol}</span>
+              <span className="text-white/60 truncate">{holding.name}</span>
+            </div>
+            <span className="text-white font-semibold ml-2">{holding.weight.toFixed(1)}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 // Analyst recommendation meter (1=Strong Buy ... 5=Strong Sell)
-const AnalystMeter = ({ recommendation, growthData, targetPrice, currentPrice }) => {
+const AnalystMeter = ({ recommendation, growthData, targetPrice, currentPrice, ticker, isETF }) => {
   const getColor = (p) => {
     if (p <= 20) return '#059669';
     if (p <= 40) return '#34d399';
@@ -115,7 +182,12 @@ const AnalystMeter = ({ recommendation, growthData, targetPrice, currentPrice })
   const primaryLabel = showAnalystAsPrimary ? 'Aanbevelingen analisten' : 'Momentum score';
   const primarySource = showAnalystAsPrimary ? (analystCount > 0 ? `${analystCount} analisten` : null) : 'Berekend op basis van groei';
 
-  // Don't show anything if no analyst data
+  // Show ETF holdings if no analyst data and it's an ETF
+  if (!hasAnalysts && isETF && ticker) {
+    return <ETFHoldings ticker={ticker} />;
+  }
+
+  // Don't show anything if no analyst data and not an ETF
   if (!hasAnalysts) {
     return null;
   }
@@ -1324,6 +1396,13 @@ const BeleggenPage = () => {
       
       const apiData = response.data;
       
+      console.log(`📊 Chart data for ${symbol}:`, apiData);
+      
+      // Check if we have valid sparkline data
+      if (!apiData || !apiData.sparklineData || !Array.isArray(apiData.sparklineData) || apiData.sparklineData.length === 0) {
+        throw new Error('No sparkline data available');
+      }
+      
       // Transform sparkline data to chart format
       const data = apiData.sparklineData.map((value, i) => ({
         time: Date.now() - (apiData.sparklineData.length - i) * 60000, // Approximate timestamps
@@ -1349,7 +1428,7 @@ const BeleggenPage = () => {
         }
       }));
     } catch (error) {
-      console.log(`Chart data error for ${symbol}:`, error);
+      console.error(`❌ Chart data error for ${symbol}:`, error.message);
       // Store placeholder so chart UI can show error state
       setChartData(prev => ({
         ...prev,
@@ -1390,9 +1469,13 @@ const BeleggenPage = () => {
         return t.symbol.includes(':') ? tradingViewToYahoo(t.symbol) : t.symbol;
       });
       
+      console.log('📰 Fetching news for tickers:', tickersToFetch);
+      
       const response = await axios.get(`/api/news`, {
         params: { tickers: tickersToFetch.join(',') }
       });
+      
+      console.log('📰 News API response:', response.data);
       
       const news = (response.data.news || []).map(n => {
         // Find matching original symbol
@@ -1504,9 +1587,13 @@ const BeleggenPage = () => {
     setLoadingScreenerNews(true);
     try {
       const queries = ['stock market today', 'growth stocks investing', 'NVIDIA AI stocks', 'S&P 500 market', 'tech stocks earnings'];
+      console.log('📰 Fetching screener news with queries:', queries);
+      
       const response = await axios.get(`/api/news`, {
         params: { queries: queries.join('|') }
       });
+      
+      console.log('📰 Screener news API response:', response.data);
       
       const news = (response.data.news || []).map(n => ({
         title: n.title,
@@ -3427,8 +3514,15 @@ const BeleggenPage = () => {
                       </div>
                     )}
 
-                    {/* Analyst Recommendation Meter */}
-                    {sd && <AnalystMeter recommendation={sd.recommendation} growthData={sd} targetPrice={sd.targetPrice} currentPrice={sd.currentPrice} />}
+                    {/* Analyst Recommendation Meter or ETF Holdings */}
+                    {sd && <AnalystMeter 
+                      recommendation={sd.recommendation} 
+                      growthData={sd} 
+                      targetPrice={sd.targetPrice} 
+                      currentPrice={sd.currentPrice}
+                      ticker={stock.ticker}
+                      isETF={stock.sector === 'Materials' || ['SPY', 'QQQ', 'VGT', 'ARKK', 'SMH', 'XLE', 'XLV', 'XLF', 'IJH', 'IWM', 'VTI', 'VOO', 'VEA', 'VWO', 'IBIT', 'GLD', 'TLT', 'XLK', 'XLY', 'XLP'].includes(stock.ticker)}
+                    />}
 
                     {/* Actions */}
                     <div className="flex items-center space-x-2">
