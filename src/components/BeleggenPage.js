@@ -68,6 +68,19 @@ const isMarketOpen = (currency, exchange) => {
 
 // ETF Holdings display (top 10 holdings with percentages)
 const ETFHoldings = ({ ticker }) => {
+  // Clean ticker - strip exchange suffix/prefix for lookup
+  const cleanTicker = (t) => {
+    if (!t) return '';
+    if (t.includes(':')) {
+      const parts = t.split(':');
+      const tickerPart = parts.find(p => /^[A-Z0-9]{1,6}$/.test(p));
+      if (tickerPart) return tickerPart;
+    }
+    if (t.includes('.')) return t.split('.')[0];
+    return t;
+  };
+  const lookupTicker = cleanTicker(ticker).toUpperCase();
+  
   // Top holdings data for major ETFs (hardcoded for now, could be API later)
   const ETF_HOLDINGS = {
     'SPY': [
@@ -106,9 +119,88 @@ const ETFHoldings = ({ ticker }) => {
       { symbol: 'HOOD', name: 'Robinhood', weight: 3.7 },
       { symbol: 'DKNG', name: 'DraftKings', weight: 3.5 },
     ],
+    // VanEck Space Innovators UCITS ETF (JEDI)
+    'JEDI': [
+      { symbol: 'RKLB', name: 'Rocket Lab', weight: 8.4 },
+      { symbol: 'IRDM', name: 'Iridium Communications', weight: 7.9 },
+      { symbol: 'TXT', name: 'Textron', weight: 6.8 },
+      { symbol: 'TDY', name: 'Teledyne Technologies', weight: 6.5 },
+      { symbol: 'VSAT', name: 'Viasat', weight: 5.7 },
+      { symbol: 'GD', name: 'General Dynamics', weight: 5.2 },
+      { symbol: 'LMT', name: 'Lockheed Martin', weight: 4.8 },
+      { symbol: 'NOC', name: 'Northrop Grumman', weight: 4.5 },
+      { symbol: 'BA', name: 'Boeing', weight: 4.1 },
+      { symbol: 'HEI', name: 'HEICO Corp', weight: 3.9 },
+    ],
+    // VanEck Defense UCITS ETF (DFEN)
+    'DFEN': [
+      { symbol: 'RTX', name: 'RTX Corporation', weight: 9.2 },
+      { symbol: 'LMT', name: 'Lockheed Martin', weight: 8.7 },
+      { symbol: 'NOC', name: 'Northrop Grumman', weight: 7.5 },
+      { symbol: 'GD', name: 'General Dynamics', weight: 6.9 },
+      { symbol: 'PLTR', name: 'Palantir', weight: 6.2 },
+      { symbol: 'HII', name: 'Huntington Ingalls', weight: 5.4 },
+      { symbol: 'BA', name: 'Boeing', weight: 5.1 },
+      { symbol: 'LDOS', name: 'Leidos Holdings', weight: 4.8 },
+      { symbol: 'AXON', name: 'Axon Enterprise', weight: 4.5 },
+      { symbol: 'TXT', name: 'Textron', weight: 4.0 },
+    ],
+    // Global X Uranium ETF (URA / URNM)
+    'URA': [
+      { symbol: 'CCJ', name: 'Cameco Corp', weight: 22.5 },
+      { symbol: 'CCO.TO', name: 'Cameco Corp (CA)', weight: 8.4 },
+      { symbol: 'NXE', name: 'NexGen Energy', weight: 6.7 },
+      { symbol: 'PDN.AX', name: 'Paladin Energy', weight: 5.8 },
+      { symbol: 'BHP', name: 'BHP Group', weight: 5.2 },
+      { symbol: 'KAP.IL', name: 'Kazatomprom', weight: 4.9 },
+      { symbol: 'DNN', name: 'Denison Mines', weight: 4.5 },
+      { symbol: 'UEC', name: 'Uranium Energy', weight: 3.8 },
+      { symbol: 'URG', name: 'Ur-Energy', weight: 3.1 },
+      { symbol: 'BOE.AX', name: 'Boss Energy', weight: 2.8 },
+    ],
+    // Global X Copper Miners ETF (COPX)
+    'COPX': [
+      { symbol: 'FM.TO', name: 'First Quantum Minerals', weight: 6.8 },
+      { symbol: 'FCX', name: 'Freeport-McMoRan', weight: 6.5 },
+      { symbol: 'BHP', name: 'BHP Group', weight: 5.9 },
+      { symbol: 'TECK', name: 'Teck Resources', weight: 5.5 },
+      { symbol: 'SCCO', name: 'Southern Copper', weight: 4.8 },
+      { symbol: 'ANTO.L', name: 'Antofagasta', weight: 4.5 },
+      { symbol: 'GLEN.L', name: 'Glencore', weight: 4.2 },
+      { symbol: 'CS.TO', name: 'Capstone Copper', weight: 3.9 },
+      { symbol: 'HBM', name: 'Hudbay Minerals', weight: 3.6 },
+      { symbol: 'IVN.TO', name: 'Ivanhoe Mines', weight: 3.3 },
+    ],
+    // Vanguard FTSE All-World UCITS ETF (VWCE / VWRL)
+    'VWCE': [
+      { symbol: 'AAPL', name: 'Apple Inc.', weight: 4.2 },
+      { symbol: 'MSFT', name: 'Microsoft Corp.', weight: 3.9 },
+      { symbol: 'NVDA', name: 'NVIDIA Corp.', weight: 3.5 },
+      { symbol: 'AMZN', name: 'Amazon.com', weight: 2.4 },
+      { symbol: 'META', name: 'Meta Platforms', weight: 1.5 },
+      { symbol: 'GOOGL', name: 'Alphabet Class A', weight: 1.2 },
+      { symbol: 'GOOG', name: 'Alphabet Class C', weight: 1.0 },
+      { symbol: 'TSLA', name: 'Tesla Inc.', weight: 1.0 },
+      { symbol: 'BRK.B', name: 'Berkshire Hathaway', weight: 0.9 },
+      { symbol: 'AVGO', name: 'Broadcom Inc.', weight: 0.9 },
+    ],
+    // L&G Clean Energy UCITS ETF (RENW)
+    'RENW': [
+      { symbol: 'FSLR', name: 'First Solar', weight: 7.8 },
+      { symbol: 'ENPH', name: 'Enphase Energy', weight: 6.5 },
+      { symbol: 'NEE', name: 'NextEra Energy', weight: 5.9 },
+      { symbol: 'IBE.MC', name: 'Iberdrola', weight: 5.2 },
+      { symbol: 'ORSTED.CO', name: 'Ørsted A/S', weight: 4.7 },
+      { symbol: 'VWS.CO', name: 'Vestas Wind Systems', weight: 4.5 },
+      { symbol: 'SEDG', name: 'SolarEdge', weight: 4.1 },
+      { symbol: 'PLUG', name: 'Plug Power', weight: 3.8 },
+      { symbol: 'RUN', name: 'Sunrun', weight: 3.5 },
+      { symbol: 'BEPC', name: 'Brookfield Renewable', weight: 3.2 },
+    ],
   };
 
-  const holdings = ETF_HOLDINGS[ticker];
+  // Try lookup with cleaned ticker first, then original
+  const holdings = ETF_HOLDINGS[lookupTicker] || ETF_HOLDINGS[ticker];
   if (!holdings) return null;
 
   return (
@@ -2788,12 +2880,14 @@ const BeleggenPage = () => {
                   </div>
                 )}
 
-                {/* Analyst Meter (Analyst + Momentum) */}
+                {/* Analyst Meter (Analyst + Momentum) - or ETF Holdings */}
                 <AnalystMeter 
                   recommendation={investment.ticker_symbol ? analystData[investment.ticker_symbol] : null}
                   growthData={stockPrice?.growthData || null}
                   targetPrice={analystData[investment.ticker_symbol]?.targetPrice}
                   currentPrice={stockPrice?.current}
+                  ticker={investment.ticker_symbol}
+                  isETF={investment.type === 'etf'}
                 />
 
                 {/* Investment Details */}
@@ -4178,8 +4272,15 @@ const BeleggenPage = () => {
                       </button>
                     </div>
                   </div>
-                  {/* Analyst Recommendation Meter */}
-                  {sd && <AnalystMeter recommendation={sd.recommendation} growthData={sd} targetPrice={sd.targetPrice} currentPrice={sd.currentPrice} />}
+                  {/* Analyst Recommendation Meter or ETF Holdings */}
+                  {sd && <AnalystMeter 
+                    recommendation={sd.recommendation} 
+                    growthData={sd} 
+                    targetPrice={sd.targetPrice} 
+                    currentPrice={sd.currentPrice}
+                    ticker={item.ticker}
+                    isETF={item.sector === 'ETF' || item.type === 'etf'}
+                  />}
                 </a>
               );
             })}

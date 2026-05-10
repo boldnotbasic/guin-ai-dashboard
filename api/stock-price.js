@@ -11,12 +11,50 @@ const tradingViewToYahoo = (tvTicker) => {
   const parts = tvTicker.split(':');
   let exchange, symbol;
   
-  if (parts[0].length <= 6 && parts[0] === parts[0].toUpperCase() && /^[A-Z]+$/.test(parts[0])) {
+  if (parts[0].length <= 8 && parts[0] === parts[0].toUpperCase() && /^[A-Z]+$/.test(parts[0])) {
     exchange = parts[0];
     symbol = parts[1];
   } else {
     symbol = parts[0];
     exchange = parts[1];
+  }
+  
+  // INDICES: TradingView uses SP:SPX, NASDAQ:NDX, etc. Yahoo uses ^GSPC, ^NDX, etc.
+  const indexMap = {
+    'SP:SPX': '^GSPC',
+    'SPX': '^GSPC',
+    'NASDAQ:NDX': '^NDX',
+    'NDX': '^NDX',
+    'NASDAQ:IXIC': '^IXIC',
+    'IXIC': '^IXIC',
+    'DJ:DJI': '^DJI',
+    'DJI': '^DJI',
+    'TVC:DXY': 'DX-Y.NYB',
+    'DXY': 'DX-Y.NYB',
+    'TVC:VIX': '^VIX',
+    'VIX': '^VIX',
+    'EURONEXT:AEX': '^AEX',
+    'AEX': '^AEX',
+    'XETR:DAX': '^GDAXI',
+    'DAX': '^GDAXI',
+    'TVC:UKX': '^FTSE',
+    'UKX': '^FTSE',
+  };
+  
+  // Check full ticker against index map first
+  if (indexMap[tvTicker]) return indexMap[tvTicker];
+  if (indexMap[symbol]) return indexMap[symbol];
+  
+  // CRYPTO: TradingView uses BINANCE:BTCUSDT, COINBASE:BTCUSD, etc. Yahoo uses BTC-USD
+  if (['BINANCE', 'COINBASE', 'BITFINEX', 'KRAKEN', 'BITSTAMP'].includes(exchange)) {
+    // Strip USDT/USD suffix and reformat
+    const cryptoMatch = symbol.match(/^([A-Z]+?)(USDT?|EUR|GBP|BUSD)$/);
+    if (cryptoMatch) {
+      const base = cryptoMatch[1];
+      const quote = cryptoMatch[2].startsWith('USD') ? 'USD' : cryptoMatch[2];
+      return `${base}-${quote}`;
+    }
+    return symbol;
   }
   
   const exchangeMap = {
@@ -26,6 +64,7 @@ const tradingViewToYahoo = (tvTicker) => {
     'XOSL': '.OL', 'XMAD': '.MC', 'XHKG': '.HK', 'XTKS': '.T',
     'XASX': '.AX', 'XTSE': '.TO', 'XSHG': '.SS', 'XSHE': '.SZ',
     'NASDAQ': '', 'NYSE': '', 'XNAS': '', 'XNYS': '', 'AMEX': '',
+    'EURONEXT': '.PA', 'LSE': '.L', 'TSX': '.TO',
   };
   
   const suffix = exchangeMap[exchange];
@@ -42,8 +81,19 @@ const getTickerVariants = (ticker) => {
   // If ticker contains colon (TradingView format), also try just the symbol part
   if (ticker.includes(':')) {
     const parts = ticker.split(':');
-    const symbol = parts[0].length <= 6 && /^[A-Z]+$/.test(parts[0]) ? parts[1] : parts[0];
+    const symbol = parts[0].length <= 8 && /^[A-Z]+$/.test(parts[0]) ? parts[1] : parts[0];
     if (!variants.includes(symbol)) variants.push(symbol);
+    
+    // Index fallback - try with ^ prefix
+    if (!variants.some(v => v.startsWith('^'))) {
+      variants.push(`^${symbol}`);
+    }
+    
+    // Crypto fallback - try -USD format
+    if (symbol.endsWith('USDT') || symbol.endsWith('USD')) {
+      const base = symbol.replace(/USDT?$/, '');
+      variants.push(`${base}-USD`);
+    }
   }
   
   // Try common European exchange suffixes if no exchange specified
