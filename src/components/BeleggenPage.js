@@ -123,10 +123,19 @@ const AnalystMeter = ({ recommendation, growthData, targetPrice, currentPrice })
           <span className="text-white/60 text-xs font-medium">{primaryLabel}</span>
           <span className="text-xs font-bold" style={{ color: getColor(primaryPct) }}>{getLabel(primaryPct)}</span>
         </div>
-        <div className="relative h-2.5 rounded-full overflow-hidden" style={{ background: segmentedGradient }}>
+        <div className="relative h-8 rounded-lg overflow-hidden" style={{ background: segmentedGradient }}>
+          {/* Show numbers in each segment if we have breakdown */}
+          {showAnalystAsPrimary && breakdown && (
+            <div className="absolute inset-0 flex items-center justify-between px-2 text-[10px] font-bold text-white/90">
+              <span className="flex-1 text-center">{breakdown.strongBuy + breakdown.buy}</span>
+              <span className="flex-1 text-center">{breakdown.hold}</span>
+              <span className="flex-1 text-center">{breakdown.sell + breakdown.strongSell}</span>
+            </div>
+          )}
+          {/* Indicator dot */}
           <div
-            className="absolute top-[-1px] w-3.5 h-3.5 rounded-full bg-white border-2 shadow-lg"
-            style={{ left: `calc(${Math.max(2, Math.min(98, primaryPct))}% - 7px)`, borderColor: getColor(primaryPct) }}
+            className="absolute top-[-2px] w-4 h-4 rounded-full bg-white border-2 shadow-lg z-10"
+            style={{ left: `calc(${Math.max(2, Math.min(98, primaryPct))}% - 8px)`, borderColor: getColor(primaryPct) }}
           />
         </div>
         {/* Legend with colored dots and counts */}
@@ -1270,8 +1279,16 @@ const BeleggenPage = () => {
     // Sort by composite score (best first)
     gems.sort((a, b) => b.score - a.score);
     
-    // Filter: Only show gems with score >= 30 (true top picks)
-    const topPicks = gems.filter(gem => gem.score >= 30);
+    // Filter: Show at least 10 gems, or all with score >= 20
+    const MIN_GEMS = 10;
+    const SCORE_THRESHOLD = 20;
+    
+    let topPicks = gems.filter(gem => gem.score >= SCORE_THRESHOLD);
+    
+    // If less than MIN_GEMS, take top MIN_GEMS regardless of score
+    if (topPicks.length < MIN_GEMS && gems.length >= MIN_GEMS) {
+      topPicks = gems.slice(0, MIN_GEMS);
+    }
     
     setGemWatchlist(topPicks);
     setLoadingGems(false);
