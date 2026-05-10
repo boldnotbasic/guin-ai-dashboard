@@ -115,22 +115,27 @@ const AnalystMeter = ({ recommendation, growthData, targetPrice, currentPrice })
   const primaryLabel = showAnalystAsPrimary ? 'Aanbevelingen analisten' : 'Momentum score';
   const primarySource = showAnalystAsPrimary ? (analystCount > 0 ? `${analystCount} analisten` : null) : 'Berekend op basis van groei';
 
+  // Don't show anything if no analyst data
+  if (!hasAnalysts) {
+    return null;
+  }
+
   return (
     <div className="mt-2 pt-2 border-t border-white/5 mb-3">
-      {/* Primary Meter - Always show colored bar */}
+      {/* Analyst Meter - Only shown when we have analyst data */}
       <div className="mb-3">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-white/60 text-xs font-medium">{primaryLabel}</span>
-          <span className="text-xs font-bold" style={{ color: getColor(primaryPct) }}>{getLabel(primaryPct)}</span>
+          <span className="text-white/60 text-xs font-medium">Aanbevelingen analisten</span>
+          <span className="text-xs font-bold" style={{ color: getColor(analystPct) }}>{getLabel(analystPct)}</span>
         </div>
         <div className="relative pt-3">
           {/* Arrow indicator ABOVE the bar */}
           <div
             className="absolute top-0 z-10 transition-all"
-            style={{ left: `calc(${Math.max(2, Math.min(98, primaryPct))}% - 6px)` }}
+            style={{ left: `calc(${Math.max(2, Math.min(98, analystPct))}% - 6px)` }}
           >
             <svg width="12" height="10" viewBox="0 0 12 10" style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.4))' }}>
-              <path d="M6 10 L0 0 L12 0 Z" fill={getColor(primaryPct)} stroke="white" strokeWidth="1" />
+              <path d="M6 10 L0 0 L12 0 Z" fill={getColor(analystPct)} stroke="white" strokeWidth="1" />
             </svg>
           </div>
           {/* The colored bar with numbers */}
@@ -156,32 +161,9 @@ const AnalystMeter = ({ recommendation, growthData, targetPrice, currentPrice })
             )}
           </div>
         </div>
-        {/* Legend with colored dots and counts */}
-        <div className="flex items-center justify-between mt-2 flex-wrap gap-x-2 gap-y-1">
-          <div className="flex items-center space-x-1">
-            <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: '#059669' }}></span>
-            <span className="text-[9px] text-white/60">Kopen {breakdown ? `(S:${breakdown.strongBuy} B:${breakdown.buy})` : ''}</span>
-          </div>
-          <div className="flex items-center space-x-1">
-            <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: '#34d399' }}></span>
-            <span className="text-[9px] text-white/60">Opbouwen</span>
-          </div>
-          <div className="flex items-center space-x-1">
-            <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: '#f59e0b' }}></span>
-            <span className="text-[9px] text-white/60">Houden {breakdown ? `(${breakdown.hold})` : ''}</span>
-          </div>
-          <div className="flex items-center space-x-1">
-            <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: '#f97316' }}></span>
-            <span className="text-[9px] text-white/60">Afbouwen</span>
-          </div>
-          <div className="flex items-center space-x-1">
-            <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: '#ef4444' }}></span>
-            <span className="text-[9px] text-white/60">Verkopen {breakdown ? `(S:${breakdown.sell} S:${breakdown.strongSell})` : ''}</span>
-          </div>
-        </div>
-        {/* Breakdown summary if available (only for analyst data) */}
-        {showAnalystAsPrimary && breakdown && (
-          <div className="flex items-center justify-between mt-2 text-[9px]">
+        {/* Breakdown summary - NO LEGEND BLOCKS */}
+        {breakdown && (
+          <div className="flex items-center justify-between mt-2 text-[10px]">
             <span className="text-green-400">{breakdown.strongBuy + breakdown.buy} Buy</span>
             <span className="text-yellow-400">{breakdown.hold} Hold</span>
             <span className="text-red-400">{breakdown.sell + breakdown.strongSell} Sell</span>
@@ -676,23 +658,33 @@ const BeleggenPage = () => {
   const fetchFMPAnalystData = async (tickers) => {
     if (!tickers || tickers.length === 0) return;
     
+    console.log('🔍 Fetching FMP analyst data for tickers:', tickers);
+    
     try {
       const response = await axios.get('/api/fmp-analyst', {
         params: { tickers: tickers.join(',') }
       });
       
+      console.log('📊 FMP Response:', response.data);
+      
       if (response.data?.results) {
+        const resultCount = Object.keys(response.data.results).length;
+        console.log(`✅ Got analyst data for ${resultCount} tickers:`, Object.keys(response.data.results));
+        
         // Merge FMP data with existing analyst data (prefer FMP if available)
         setAnalystData(prev => {
           const merged = { ...prev };
           Object.keys(response.data.results).forEach(ticker => {
             merged[ticker] = response.data.results[ticker];
           });
+          console.log('💾 Merged analyst data:', merged);
           return merged;
         });
+      } else {
+        console.warn('⚠️ No results in FMP response');
       }
     } catch (error) {
-      console.error('Error fetching FMP analyst data:', error.message);
+      console.error('❌ Error fetching FMP analyst data:', error.message);
       // Fallback to Yahoo Finance data if FMP fails
     }
   };
