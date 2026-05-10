@@ -176,6 +176,12 @@ const AnalystMeter = ({ recommendation, growthData, targetPrice, currentPrice })
             </span>
           </div>
         )}
+        {/* FMP source badge */}
+        {showAnalystAsPrimary && recommendation?.source === 'FMP' && (
+          <div className="mt-2 flex items-center justify-end">
+            <span className="text-[8px] text-white/30 bg-white/5 px-2 py-0.5 rounded">FMP Data</span>
+          </div>
+        )}
       </div>
 
       {/* Secondary Momentum Score - Only show if we have analyst data as primary AND momentum data */}
@@ -631,7 +637,37 @@ const BeleggenPage = () => {
     
     setStockPrices(prices);
     setLoadingPrices(false);
-    // Analyst data is now fetched with each stock-price call and stored above
+    
+    // Fetch analyst data from FMP (separate call for better reliability)
+    const tickersWithPrices = Object.keys(prices);
+    if (tickersWithPrices.length > 0) {
+      fetchFMPAnalystData(tickersWithPrices);
+    }
+  };
+
+  // Fetch analyst data from FMP API
+  const fetchFMPAnalystData = async (tickers) => {
+    if (!tickers || tickers.length === 0) return;
+    
+    try {
+      const response = await axios.get('/api/fmp-analyst', {
+        params: { tickers: tickers.join(',') }
+      });
+      
+      if (response.data?.results) {
+        // Merge FMP data with existing analyst data (prefer FMP if available)
+        setAnalystData(prev => {
+          const merged = { ...prev };
+          Object.keys(response.data.results).forEach(ticker => {
+            merged[ticker] = response.data.results[ticker];
+          });
+          return merged;
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching FMP analyst data:', error.message);
+      // Fallback to Yahoo Finance data if FMP fails
+    }
   };
 
   const loadInvestments = async () => {
