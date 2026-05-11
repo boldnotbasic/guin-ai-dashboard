@@ -227,18 +227,6 @@ const ETFHoldings = ({ ticker }) => {
 
 // Analyst recommendation meter (1=Strong Buy ... 5=Strong Sell)
 const AnalystMeter = ({ recommendation, growthData, targetPrice, currentPrice, ticker, isETF }) => {
-  // DEBUG: Log what we receive
-  if (ticker) {
-    console.log(`🎯 AnalystMeter for ${ticker}:`, { 
-      recommendation, 
-      hasRecommendation: !!recommendation,
-      recommendationMean: recommendation?.mean,
-      targetPrice,
-      isETF,
-      fullRecommendation: JSON.stringify(recommendation)
-    });
-  }
-  
   const getColor = (p) => {
     if (p <= 20) return '#059669';
     if (p <= 40) return '#34d399';
@@ -288,20 +276,12 @@ const AnalystMeter = ({ recommendation, growthData, targetPrice, currentPrice, t
 
   // Show ETF holdings if no analyst data and it's an ETF
   if (!hasAnalysts && isETF && ticker) {
-    console.log(`🎯 Showing ETF holdings for ${ticker} (no analyst data)`);
     return <ETFHoldings ticker={ticker} />;
   }
 
-  // TEMPORARY: Show debug info if no analyst data (instead of returning null)
+  // Don't show anything if no analyst data and not an ETF
   if (!hasAnalysts) {
-    console.log(`🎯 No analyst data for ${ticker}, showing debug placeholder`);
-    return (
-      <div className="mt-2 pt-2 border-t border-white/5 mb-3">
-        <div className="text-[10px] text-red-400 bg-red-500/10 px-2 py-1 rounded">
-          DEBUG: Geen analyst data voor {ticker} (hasAnalysts: {hasAnalysts.toString()}, mean: {recommendation?.mean})
-        </div>
-      </div>
-    );
+    return null;
   }
 
   return (
@@ -2021,7 +2001,8 @@ const BeleggenPage = () => {
   // Fetch screener data for user's own investments (for analyst bars)
   useEffect(() => {
     const fetchInvestmentScreenerData = async () => {
-      const stockInvestments = investments.filter(inv => inv.ticker_symbol && inv.type === 'aandeel');
+      if (!Array.isArray(investments)) return;
+      const stockInvestments = investments.filter(inv => inv && inv.ticker_symbol && inv.type === 'aandeel');
       if (stockInvestments.length === 0) return;
       
       try {
@@ -2079,7 +2060,7 @@ const BeleggenPage = () => {
     
     fetchInvestmentScreenerData();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [investments.length]);
+  }, [Array.isArray(investments) ? investments.length : 0]);
 
   const addChartFavorite = () => {
     if (!newChartSymbol.trim()) return;
