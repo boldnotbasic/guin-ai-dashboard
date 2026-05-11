@@ -1935,34 +1935,65 @@ const BeleggenPage = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screenerCategory]);
 
-  // Also fetch data for watchlist items not yet loaded
+  // Fetch screener data for watchlist items (includes analyst data + technical indicators)
   useEffect(() => {
     const fetchWatchlistData = async () => {
-      for (const item of myWatchlist) {
-        if (screenerData[item.ticker] || stockPrices[item.ticker]) continue;
-        try {
-          const url = `https://query1.finance.yahoo.com/v8/finance/chart/${item.ticker}?interval=1d&range=1y`;
-          const response = await axios.get(`${CORS_PROXY}${encodeURIComponent(url)}`);
-          const result = response.data.chart.result[0];
-          const meta = result.meta;
-          const closes = result.indicators.quote[0].close.filter(p => p !== null);
-          if (closes.length < 5) continue;
-          const currentPrice = meta.regularMarketPrice;
-          const yesterdayClose = closes.length >= 2 ? closes[closes.length - 2] : meta.previousClose;
-          const dailyChange = yesterdayClose ? ((currentPrice - yesterdayClose) / yesterdayClose) * 100 : 0;
-          const price1yrAgo = closes[0];
-          const growth1yr = price1yrAgo ? ((currentPrice - price1yrAgo) / price1yrAgo) * 100 : 0;
-          const halfIdx = Math.floor(closes.length / 2);
-          const price6moAgo = closes[halfIdx] || closes[0];
-          const growth6mo = price6moAgo ? ((currentPrice - price6moAgo) / price6moAgo) * 100 : 0;
-          const price1moAgo = closes.length >= 22 ? closes[closes.length - 22] : closes[0];
-          const growth1mo = price1moAgo ? ((currentPrice - price1moAgo) / price1moAgo) * 100 : 0;
-          const sparkline = closes.slice(-30);
-          setScreenerData(prev => ({ ...prev, [item.ticker]: { currentPrice, dailyChange, growth6mo, growth1mo, growth1yr, sparkline, currency: meta.currency || 'USD' } }));
-        } catch (e) { continue; }
+      if (myWatchlist.length === 0) return;
+      
+      try {
+        const tickers = myWatchlist.map(item => item.ticker).join(',');
+        console.log('🔍 Fetching screener data for watchlist:', tickers);
+        
+        const response = await axios.get(`/api/screener`, {
+          params: {
+            tickers: tickers,
+            minScore: 0,
+            maxResults: 50
+          }
+        });
+        
+        const { results } = response.data;
+        console.log('📊 Watchlist screener results:', results.length, 'stocks');
+        
+        // Map to screenerData format with ALL data (price, analyst, technical)
+        const newData = {};
+        results.forEach(stock => {
+          console.log(`✅ Watchlist ${stock.ticker}:`, {
+            price: stock.currentPrice,
+            recommendation: stock.recommendation,
+            hasAnalyst: !!stock.recommendation
+          });
+          
+          newData[stock.ticker] = {
+            currentPrice: stock.currentPrice,
+            dailyChange: stock.dailyChange,
+            growth6mo: stock.growth6mo,
+            growth1mo: stock.growth1mo,
+            growth1yr: stock.growth1yr,
+            sparkline: stock.sparkline || [],
+            currency: stock.currency,
+            recommendation: stock.recommendation || null,
+            targetPrice: stock.targetPrice || null,
+            rsi: stock.rsi,
+            sma50: stock.sma50,
+            sma200: stock.sma200,
+            signal: {
+              overall: stock.signal,
+              score: stock.signalScore,
+              reasons: stock.signalReasons
+            },
+            volume: stock.currentVolume,
+            avgVolume: stock.avgVolume20d
+          };
+        });
+        
+        setScreenerData(prev => ({ ...prev, ...newData }));
+      } catch (error) {
+        console.error('❌ Watchlist screener error:', error);
       }
     };
-    if (myWatchlist.length > 0) fetchWatchlistData();
+    
+    fetchWatchlistData();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [myWatchlist.length]);
 
@@ -4251,8 +4282,8 @@ const BeleggenPage = () => {
                       {sparkData && <Sparkline data={sparkData} color={isUp ? '#4ade80' : '#f87171'} width={50} height={20} />}
                     </div>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                       {hasData ? (
                         <>
                           <span className="text-white font-bold text-sm">{currSym}{price.toFixed(2)}</span>
@@ -4290,6 +4321,53 @@ const BeleggenPage = () => {
                       </button>
                     </div>
                   </div>
+                  
+                  {/* Technical Indicators */}
+                  {hasData && sd.signal && (
+                    <div className="mb-2">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-white/40 text-[10px]">Technisch Signaal</span>
+                        {sd.signal.overall && (
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                            sd.signal.overall === 'STRONG BUY' ? 'bg-green-500/20 text-green-400' :
+                            sd.signal.overall === 'BUY' ? 'bg-green-500/10 text-green-300' :
+                            sd.signal.overall === 'STRONG SELL' ? 'bg-red-500/20 text-red-400' :
+                            sd.signal.overall === 'SELL' ? 'bg-red-500/10 text-red-300' :
+                            'bg-yellow-500/10 text-yellow-300'
+                          }`}>
+                            {sd.signal.overall}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
+                        {sd.rsi && (
+                          <div className={`text-[9px] px-1.5 py-0.5 rounded ${
+                            sd.rsi < 30 ? 'bg-green-500/20 text-green-400' :
+                            sd.rsi > 70 ? 'bg-red-500/20 text-red-400' :
+                            'bg-blue-500/10 text-blue-300'
+                          }`}>
+                            RSI: {sd.rsi.toFixed(0)}
+                          </div>
+                        )}
+                        {sd.sma50 && sd.sma200 && (
+                          <div className={`text-[9px] px-1.5 py-0.5 rounded ${
+                            sd.currentPrice > sd.sma50 && sd.sma50 > sd.sma200 ? 'bg-green-500/20 text-green-400' :
+                            sd.currentPrice < sd.sma50 && sd.sma50 < sd.sma200 ? 'bg-red-500/20 text-red-400' :
+                            'bg-yellow-500/10 text-yellow-300'
+                          }`}>
+                            MA: {sd.currentPrice > sd.sma50 ? '↑50d' : '↓50d'}
+                          </div>
+                        )}
+                        {sd.volume && sd.avgVolume && (
+                          <div className={`text-[9px] px-1.5 py-0.5 rounded ${
+                            sd.volume > sd.avgVolume * 1.5 ? 'bg-purple-500/20 text-purple-300' : 'bg-white/5 text-white/40'
+                          }`}>
+                            Vol: {sd.volume > sd.avgVolume * 1.5 ? 'Hoog' : 'Normaal'}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                   {/* Analyst Recommendation Meter or ETF Holdings */}
                   {sd && <AnalystMeter 
                     recommendation={sd.recommendation} 
