@@ -1922,6 +1922,12 @@ const BeleggenPage = () => {
       
       setScreenerData(newScreenerData);
       
+      // Also fetch dedicated FMP analyst data for screener tickers (more reliable)
+      const screenerTickers = results.map(s => s.ticker);
+      if (screenerTickers.length > 0) {
+        fetchFMPAnalystData(screenerTickers);
+      }
+      
     } catch (error) {
       console.error('Screener API error:', error);
     }
@@ -1990,6 +1996,12 @@ const BeleggenPage = () => {
         setScreenerData(prev => ({ ...prev, ...newData }));
       } catch (error) {
         console.error('❌ Watchlist screener error:', error);
+      }
+      
+      // ALSO fetch dedicated FMP analyst data (more reliable for analyst bars)
+      const watchlistTickers = myWatchlist.map(item => item.ticker);
+      if (watchlistTickers.length > 0) {
+        fetchFMPAnalystData(watchlistTickers);
       }
     };
     
@@ -3721,14 +3733,14 @@ const BeleggenPage = () => {
                     )}
 
                     {/* Analyst Recommendation Meter or ETF Holdings */}
-                    {sd && <AnalystMeter 
-                      recommendation={sd.recommendation} 
-                      growthData={sd} 
-                      targetPrice={sd.targetPrice} 
-                      currentPrice={sd.currentPrice}
+                    <AnalystMeter 
+                      recommendation={sd?.recommendation || analystData[stock.ticker] || null} 
+                      growthData={sd || null} 
+                      targetPrice={sd?.targetPrice || analystData[stock.ticker]?.targetPrice} 
+                      currentPrice={sd?.currentPrice}
                       ticker={stock.ticker}
                       isETF={stock.sector === 'Materials' || ['SPY', 'QQQ', 'VGT', 'ARKK', 'SMH', 'XLE', 'XLV', 'XLF', 'IJH', 'IWM', 'VTI', 'VOO', 'VEA', 'VWO', 'IBIT', 'GLD', 'TLT', 'XLK', 'XLY', 'XLP'].includes(stock.ticker)}
-                    />}
+                    />
 
                     {/* Actions */}
                     <div className="flex items-center space-x-2">
@@ -4434,14 +4446,14 @@ const BeleggenPage = () => {
                     </div>
                   )}
                   {/* Analyst Recommendation Meter or ETF Holdings */}
-                  {sd && <AnalystMeter 
-                    recommendation={sd.recommendation} 
-                    growthData={sd} 
-                    targetPrice={sd.targetPrice} 
-                    currentPrice={sd.currentPrice}
+                  <AnalystMeter 
+                    recommendation={sd?.recommendation || analystData[item.ticker] || null} 
+                    growthData={sd || null} 
+                    targetPrice={sd?.targetPrice || analystData[item.ticker]?.targetPrice} 
+                    currentPrice={sd?.currentPrice}
                     ticker={item.ticker}
                     isETF={item.sector === 'ETF' || item.type === 'etf'}
-                  />}
+                  />
                 </a>
               );
             })}
