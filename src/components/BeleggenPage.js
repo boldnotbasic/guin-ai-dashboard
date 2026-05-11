@@ -227,6 +227,17 @@ const ETFHoldings = ({ ticker }) => {
 
 // Analyst recommendation meter (1=Strong Buy ... 5=Strong Sell)
 const AnalystMeter = ({ recommendation, growthData, targetPrice, currentPrice, ticker, isETF }) => {
+  // DEBUG: Log what we receive
+  if (ticker) {
+    console.log(`🎯 AnalystMeter for ${ticker}:`, { 
+      recommendation, 
+      hasRecommendation: !!recommendation,
+      recommendationMean: recommendation?.mean,
+      targetPrice,
+      isETF
+    });
+  }
+  
   const getColor = (p) => {
     if (p <= 20) return '#059669';
     if (p <= 40) return '#34d399';
