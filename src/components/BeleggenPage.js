@@ -279,20 +279,18 @@ const AnalystMeter = ({ recommendation, growthData, targetPrice, currentPrice, t
     return <ETFHoldings ticker={ticker} />;
   }
 
-  // Don't show anything if no analyst data and not an ETF
-  if (!hasAnalysts) {
-    return null;
-  }
-
+  // ALWAYS show analyst section - either with data or explanation
   return (
     <div className="mt-2 pt-2 border-t border-white/5 mb-3">
-      {/* Analyst Meter - Only shown when we have analyst data */}
-      <div className="mb-3">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-white/60 text-xs font-medium">Aanbevelingen analisten</span>
-          <span className="text-xs font-bold" style={{ color: getColor(analystPct) }}>{getLabel(analystPct)}</span>
-        </div>
-        <div className="relative pt-3">
+      {hasAnalysts ? (
+        // Show analyst bar when we have data
+        <>
+        <div className="mb-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-white/60 text-xs font-medium">Aanbevelingen analisten</span>
+            <span className="text-xs font-bold" style={{ color: getColor(analystPct) }}>{getLabel(analystPct)}</span>
+          </div>
+          <div className="relative pt-3">
           {/* Arrow indicator ABOVE the bar */}
           <div
             className="absolute top-0 z-10 transition-all"
@@ -355,20 +353,44 @@ const AnalystMeter = ({ recommendation, growthData, targetPrice, currentPrice, t
             <span className="text-[8px] text-white/30 bg-white/5 px-2 py-0.5 rounded">FMP Data</span>
           </div>
         )}
-      </div>
+        </div>
 
-      {/* Secondary Momentum Score - Only show if we have analyst data as primary AND momentum data */}
-      {showAnalystAsPrimary && hasMomentum && (
-        <div className="mt-4 pt-3 border-t border-white/5">
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="text-white/50 text-[11px]">Momentum</span>
-            <span className="text-[11px] font-semibold" style={{ color: getColor(momentumPct) }}>{getLabel(momentumPct)}</span>
+        {/* Secondary Momentum Score - Only show if we have analyst data as primary AND momentum data */}
+        {showAnalystAsPrimary && hasMomentum && (
+          <div className="mt-4 pt-3 border-t border-white/5">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-white/50 text-[11px]">Momentum</span>
+              <span className="text-[11px] font-semibold" style={{ color: getColor(momentumPct) }}>{getLabel(momentumPct)}</span>
+            </div>
+            <div className="relative h-1.5 rounded-full overflow-hidden" style={{ background: 'linear-gradient(to right, #059669, #34d399, #f59e0b, #f97316, #ef4444)' }}>
+              <div
+                className="absolute top-[-1px] w-2.5 h-2.5 rounded-full bg-white border-2 shadow-md"
+                style={{ left: `calc(${Math.max(2, Math.min(98, momentumPct))}% - 5px)`, borderColor: getColor(momentumPct) }}
+              />
+            </div>
           </div>
-          <div className="relative h-1.5 rounded-full overflow-hidden" style={{ background: 'linear-gradient(to right, #059669, #34d399, #f59e0b, #f97316, #ef4444)' }}>
-            <div
-              className="absolute top-[-1px] w-2.5 h-2.5 rounded-full bg-white border-2 shadow-md"
-              style={{ left: `calc(${Math.max(2, Math.min(98, momentumPct))}% - 5px)`, borderColor: getColor(momentumPct) }}
-            />
+        )}
+        </>
+      ) : (
+        // Show explanation when no analyst data
+        <div className="mb-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-white/60 text-xs font-medium">Aanbevelingen analisten</span>
+            <span className="text-xs text-white/40">Geen data</span>
+          </div>
+          <div className="text-[10px] text-white/30 bg-white/5 px-3 py-2 rounded">
+            {ticker ? (
+              <>
+                <div className="mb-1">📊 Geen analyst data voor {ticker}</div>
+                <div className="text-white/20">
+                  • recommendation: {recommendation ? 'object aanwezig' : 'null'}<br/>
+                  • recommendation.mean: {recommendation?.mean ?? 'undefined'}<br/>
+                  • Bron: {recommendation?.source || 'geen bron'}
+                </div>
+              </>
+            ) : (
+              'Geen ticker opgegeven'
+            )}
           </div>
         </div>
       )}
