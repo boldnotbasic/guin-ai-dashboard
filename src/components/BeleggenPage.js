@@ -1997,6 +1997,69 @@ const BeleggenPage = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [myWatchlist.length]);
 
+  // Fetch screener data for user's own investments (for analyst bars)
+  useEffect(() => {
+    const fetchInvestmentScreenerData = async () => {
+      const stockInvestments = investments.filter(inv => inv.ticker_symbol && inv.type === 'aandeel');
+      if (stockInvestments.length === 0) return;
+      
+      try {
+        const tickers = stockInvestments.map(inv => inv.ticker_symbol).join(',');
+        console.log('🔍 Fetching screener data for investments:', tickers);
+        
+        const response = await axios.get(`/api/screener`, {
+          params: {
+            tickers: tickers,
+            minScore: 0,
+            maxResults: 50
+          }
+        });
+        
+        const { results } = response.data;
+        console.log('📊 Investment screener results:', results.length, 'stocks');
+        
+        // Map to screenerData format
+        const newData = {};
+        results.forEach(stock => {
+          console.log(`✅ Investment ${stock.ticker}:`, {
+            price: stock.currentPrice,
+            recommendation: stock.recommendation,
+            hasAnalyst: !!stock.recommendation
+          });
+          
+          newData[stock.ticker] = {
+            currentPrice: stock.currentPrice,
+            dailyChange: stock.dailyChange,
+            growth6mo: stock.growth6mo,
+            growth1mo: stock.growth1mo,
+            growth1yr: stock.growth1yr,
+            sparkline: stock.sparkline || [],
+            currency: stock.currency,
+            recommendation: stock.recommendation || null,
+            targetPrice: stock.targetPrice || null,
+            rsi: stock.rsi,
+            sma50: stock.sma50,
+            sma200: stock.sma200,
+            signal: {
+              overall: stock.signal,
+              score: stock.signalScore,
+              reasons: stock.signalReasons
+            },
+            volume: stock.currentVolume,
+            avgVolume: stock.avgVolume20d
+          };
+        });
+        
+        setScreenerData(prev => ({ ...prev, ...newData }));
+      } catch (error) {
+        console.error('❌ Investment screener error:', error);
+      }
+    };
+    
+    fetchInvestmentScreenerData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [investments.length]);
+
   const addChartFavorite = () => {
     if (!newChartSymbol.trim()) return;
     setChartFavorites([...chartFavorites, {
@@ -2931,10 +2994,10 @@ const BeleggenPage = () => {
 
                 {/* Analyst Meter (Analyst + Momentum) - or ETF Holdings */}
                 <AnalystMeter 
-                  recommendation={investment.ticker_symbol ? analystData[investment.ticker_symbol] : null}
-                  growthData={stockPrice?.growthData || null}
-                  targetPrice={analystData[investment.ticker_symbol]?.targetPrice}
-                  currentPrice={stockPrice?.current}
+                  recommendation={investment.ticker_symbol ? (screenerData[investment.ticker_symbol]?.recommendation || analystData[investment.ticker_symbol]) : null}
+                  growthData={stockPrice?.growthData || screenerData[investment.ticker_symbol] || null}
+                  targetPrice={screenerData[investment.ticker_symbol]?.targetPrice || analystData[investment.ticker_symbol]?.targetPrice}
+                  currentPrice={stockPrice?.current || screenerData[investment.ticker_symbol]?.currentPrice}
                   ticker={investment.ticker_symbol}
                   isETF={investment.type === 'etf'}
                 />
@@ -4250,14 +4313,16 @@ const BeleggenPage = () => {
         {myWatchlist.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {myWatchlist.map((item) => {
-              const sd = screenerData[item.ticker] || {};
+              const sd = screenerData[item.ticker];
               const sp = stockPrices[item.ticker];
-              const hasData = sd.currentPrice || sp;
-              const price = sd.currentPrice || sp?.current || 0;
-              const daily = sd.dailyChange || sp?.changePercent || 0;
-              const sparkData = sd.sparkline || sp?.sparklineData;
-              const currSym = (sd.currency === 'EUR' || sp?.currency === 'EUR') ? '€' : '$';
+              const hasData = (sd && sd.currentPrice) || sp;
+              const price = sd?.currentPrice || sp?.current || 0;
+              const daily = sd?.dailyChange || sp?.changePercent || 0;
+              const sparkData = sd?.sparkline || sp?.sparklineData;
+              const currSym = (sd?.currency === 'EUR' || sp?.currency === 'EUR') ? '€' : '$';
               const isUp = daily >= 0;
+              
+              console.log(`Watchlist ${item.ticker}:`, { hasData, hasSD: !!sd, price, recommendation: sd?.recommendation });
 
               return (
                 <a
