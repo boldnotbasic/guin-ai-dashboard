@@ -234,7 +234,8 @@ const AnalystMeter = ({ recommendation, growthData, targetPrice, currentPrice, t
       hasRecommendation: !!recommendation,
       recommendationMean: recommendation?.mean,
       targetPrice,
-      isETF
+      isETF,
+      fullRecommendation: JSON.stringify(recommendation)
     });
   }
   
@@ -287,12 +288,20 @@ const AnalystMeter = ({ recommendation, growthData, targetPrice, currentPrice, t
 
   // Show ETF holdings if no analyst data and it's an ETF
   if (!hasAnalysts && isETF && ticker) {
+    console.log(`🎯 Showing ETF holdings for ${ticker} (no analyst data)`);
     return <ETFHoldings ticker={ticker} />;
   }
 
-  // Don't show anything if no analyst data and not an ETF
+  // TEMPORARY: Show debug info if no analyst data (instead of returning null)
   if (!hasAnalysts) {
-    return null;
+    console.log(`🎯 No analyst data for ${ticker}, showing debug placeholder`);
+    return (
+      <div className="mt-2 pt-2 border-t border-white/5 mb-3">
+        <div className="text-[10px] text-red-400 bg-red-500/10 px-2 py-1 rounded">
+          DEBUG: Geen analyst data voor {ticker} (hasAnalysts: {hasAnalysts.toString()}, mean: {recommendation?.mean})
+        </div>
+      </div>
+    );
   }
 
   return (
