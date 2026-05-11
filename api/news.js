@@ -21,38 +21,40 @@ const cleanTicker = (ticker) => {
   return ticker;
 };
 
-// Fetch news from FMP for a specific ticker (returns REAL ticker news)
-const fetchFMPNewsForTicker = async (ticker) => {
-  const FMP_API_KEY = process.env.FMP_API_KEY;
-  if (!FMP_API_KEY) return [];
-  
+// Fetch news from Yahoo Finance for a specific ticker
+const fetchYahooNewsForTicker = async (ticker) => {
   const symbol = cleanTicker(ticker);
   
   try {
-    // FMP stable endpoint for ticker-specific news
-    const url = `https://financialmodelingprep.com/stable/news/stock?symbols=${symbol}&limit=10&apikey=${FMP_API_KEY}`;
-    const response = await fetch(url);
+    // Yahoo Finance news endpoint - more reliable than FMP
+    const url = `https://query1.finance.yahoo.com/v1/finance/search?q="${symbol}"&newsCount=10&quotesCount=0`;
+    
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+      }
+    });
     
     if (!response.ok) {
-      console.log(`FMP news failed for ${symbol}: ${response.status}`);
+      console.log(`Yahoo news failed for ${symbol}: ${response.status}`);
       return [];
     }
     
     const data = await response.json();
-    if (!Array.isArray(data)) return [];
+    if (!data.news || !Array.isArray(data.news)) return [];
     
-    return data.map(article => ({
+    return data.news.map(article => ({
       title: article.title,
-      link: article.url || article.link,
-      publisher: article.site || article.publisher || 'Unknown',
-      publishedAt: article.publishedDate ? new Date(article.publishedDate).getTime() : Date.now(),
-      ticker: article.symbol || symbol,
-      relatedTickers: [article.symbol || symbol],
-      thumbnail: article.image || null,
+      link: article.link || article.url,
+      publisher: article.publisher || 'Unknown',
+      publishedAt: article.providerPublishTime ? article.providerPublishTime * 1000 : Date.now(),
+      ticker: symbol,
+      relatedTickers: article.relatedTickers || [symbol],
+      thumbnail: article.thumbnail?.resolutions?.[0]?.url || null,
       query: ticker
     }));
   } catch (error) {
-    console.error(`FMP news error for ${symbol}:`, error.message);
+    console.error(`Yahoo news error for ${symbol}:`, error.message);
     return [];
   }
 };
@@ -116,10 +118,10 @@ module.exports = async function handler(req, res) {
   }
   
   try {
-    // Fetch ticker news from FMP (real ticker-specific news, no football/random results!)
+    // Fetch ticker news from Yahoo (ticker-specific news with quotes for exact match)
     // Fetch query news from Yahoo (general market searches)
     const [tickerNewsResults, queryNewsResults] = await Promise.all([
-      Promise.all(tickerList.slice(0, 8).map(t => fetchFMPNewsForTicker(t))),
+      Promise.all(tickerList.slice(0, 8).map(t => fetchYahooNewsForTicker(t))),
       Promise.all(finalQueries.slice(0, 5).map(q => fetchNewsForQuery(q)))
     ]);
     
