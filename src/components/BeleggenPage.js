@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, TrendingUp, DollarSign, Edit, Trash2, Search, ExternalLink, Link as LinkIcon, X, TrendingDown, Activity, Upload, Image, BarChart2, RefreshCw, Newspaper, Clock, Eye, Star, Info, FileText, TrendingUpIcon, Filter, SortAsc, Bell, Calendar, Sparkles, Download, BellRing, Trophy, Gem, AlertCircle } from 'lucide-react';
+import { Plus, TrendingUp, DollarSign, Edit, Trash2, Search, ExternalLink, Link as LinkIcon, X, TrendingDown, Activity, Upload, Image, BarChart2, RefreshCw, Newspaper, Clock, Eye, Star, Info, FileText, TrendingUpIcon, Filter, SortAsc, Bell, Calendar, Sparkles, Download, BellRing, Trophy, Gem, AlertCircle, Bot } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import axios from 'axios';
 import { db, supabase, storage } from '../utils/supabaseClient';
@@ -8,6 +8,8 @@ import { alertSystem, ALERT_TYPES } from '../utils/alertSystem';
 import { earningsCalendar } from '../utils/earningsCalendar';
 import { aiAnalyzer } from '../utils/aiAnalyzer';
 import { dataExporter } from '../utils/exportData';
+import { getAIExplanation } from '../utils/aiExplain';
+import { fetchYahooAnalystBatch } from '../utils/yahooAnalyst';
 import { AlertModal, EarningsModal, AIModal, NotificationsToast } from './BeleggenModals';
 
 // Sparkline component for mini charts
@@ -34,6 +36,24 @@ const Sparkline = ({ data, color, width = 100, height = 30 }) => {
       />
     </svg>
   );
+};
+
+// Get currency symbol from currency code
+const getCurrencySymbol = (currency) => {
+  switch (currency) {
+    case 'EUR': return '€';
+    case 'USD': return '$';
+    case 'GBP': return '£';
+    case 'SEK': return 'kr';
+    case 'NOK': return 'kr';
+    case 'DKK': return 'kr';
+    case 'CHF': return 'CHF ';
+    case 'JPY': return '¥';
+    case 'CAD': return 'C$';
+    case 'AUD': return 'A$';
+    case 'HKD': return 'HK$';
+    default: return currency ? currency + ' ' : '$';
+  }
 };
 
 // Check if market is open based on timezone
@@ -79,8 +99,9 @@ const ETFHoldings = ({ ticker }) => {
     if (t.includes('.')) return t.split('.')[0];
     return t;
   };
-  const lookupTicker = cleanTicker(ticker).toUpperCase();
-  
+
+
+
   // Top holdings data for major ETFs (hardcoded for now, could be API later)
   const ETF_HOLDINGS = {
     'SPY': [
@@ -199,6 +220,8 @@ const ETFHoldings = ({ ticker }) => {
     ],
   };
 
+  const lookupTicker = cleanTicker(ticker).toUpperCase();
+
   // Try lookup with cleaned ticker first, then original
   const holdings = ETF_HOLDINGS[lookupTicker] || ETF_HOLDINGS[ticker];
   if (!holdings) return null;
@@ -217,7 +240,7 @@ const ETFHoldings = ({ ticker }) => {
               <span className="text-blue-400 font-medium">{holding.symbol}</span>
               <span className="text-white/60 truncate">{holding.name}</span>
             </div>
-            <span className="text-white font-semibold ml-2">{holding.weight.toFixed(1)}%</span>
+            <span className="text-white font-semibold ml-2">{typeof holding.weight === 'number' ? holding.weight.toFixed(1) : '---'}%</span>
           </div>
         ))}
       </div>
@@ -225,8 +248,65 @@ const ETFHoldings = ({ ticker }) => {
   );
 };
 
+// Helper: render 3 news items for a ticker
+const TickerNews = ({ news }) => {
+  if (!news || news.length === 0) return null;
+  return (
+    <div className="mt-3 pt-3 border-t border-white/5">
+      <div className="flex items-center space-x-1.5 mb-2">
+        <Newspaper className="w-3 h-3 text-cyan-400" />
+        <span className="text-white/50 text-[10px] font-medium">Recent Nieuws</span>
+      </div>
+      <div className="space-y-1.5">
+        {news.slice(0, 3).map((article, idx) => (
+          <a
+            key={idx}
+            href={article.link || article.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="block hover:bg-white/5 rounded px-1.5 py-1 -mx-1.5 transition-colors"
+          >
+            <p className="text-white/80 text-[11px] leading-snug line-clamp-2 hover:text-cyan-300">
+              {article.title}
+            </p>
+            {article.publishedAt && (
+              <p className="text-white/30 text-[9px] mt-0.5">
+                {new Date(article.publishedAt).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })}
+                {article.publisher && <span className="ml-1">• {article.publisher}</span>}
+              </p>
+            )}
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 // Analyst recommendation meter (1=Strong Buy ... 5=Strong Sell)
-const AnalystMeter = ({ recommendation, growthData, targetPrice, currentPrice, ticker, isETF }) => {
+const AnalystMeter = ({ recommendation, growthData, targetPrice, currentPrice, ticker, isETF, hideAIButton }) => {
+  const [aiExplanation, setAiExplanation] = useState(null);
+  const [loadingAI, setLoadingAI] = useState(false);
+  const [showAI, setShowAI] = useState(false);
+  const [aiError, setAiError] = useState(null);
+
+  const handleAIExplanation = async () => {
+    if (aiExplanation) { setShowAI(!showAI); return; }
+    setLoadingAI(true);
+    setAiError(null);
+    try {
+      const explanation = await getAIExplanation('analyst', ticker, {
+        mean: recommendation?.mean, analysts: recommendation?.analysts,
+        breakdown: recommendation?.breakdown, targetPrice
+      });
+      setAiExplanation(explanation);
+      setShowAI(true);
+    } catch (error) {
+      setAiError(error.message);
+      setShowAI(true);
+    } finally { setLoadingAI(false); }
+  };
+
   const getColor = (p) => {
     if (p <= 20) return '#059669';
     if (p <= 40) return '#34d399';
@@ -290,26 +370,17 @@ const AnalystMeter = ({ recommendation, growthData, targetPrice, currentPrice, t
             <span className="text-white/60 text-xs font-medium">Aanbevelingen analisten</span>
             <span className="text-xs font-bold" style={{ color: getColor(analystPct) }}>{getLabel(analystPct)}</span>
           </div>
-          <div className="relative pt-3">
-          {/* Arrow indicator ABOVE the bar */}
-          <div
-            className="absolute top-0 z-10 transition-all"
-            style={{ left: `calc(${Math.max(2, Math.min(98, analystPct))}% - 6px)` }}
-          >
-            <svg width="12" height="10" viewBox="0 0 12 10" style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.4))' }}>
-              <path d="M6 10 L0 0 L12 0 Z" fill={getColor(analystPct)} stroke="white" strokeWidth="1" />
-            </svg>
-          </div>
+          <div className="relative">
           {/* The colored bar with numbers */}
-          <div className="relative h-8 rounded-lg overflow-hidden" style={{ background: segmentedGradient }}>
+          <div className="relative h-6 rounded-lg overflow-hidden" style={{ background: segmentedGradient }}>
             {/* Show numbers in each segment if we have breakdown */}
             {breakdown ? (
-              <div className="absolute inset-0 flex items-center text-[11px] font-bold text-white" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.6)' }}>
-                <span className="flex-1 text-center" title="Strong Buy + Buy">{breakdown.strongBuy + breakdown.buy}</span>
-                <span className="flex-1 text-center text-white/70"></span>
+              <div className="absolute inset-0 flex items-center text-[10px] font-bold text-white" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.6)' }}>
+                <span className="flex-1 text-center" title="Strong Buy">{breakdown.strongBuy}</span>
+                <span className="flex-1 text-center" title="Buy">{breakdown.buy}</span>
                 <span className="flex-1 text-center" title="Hold">{breakdown.hold}</span>
-                <span className="flex-1 text-center text-white/70"></span>
-                <span className="flex-1 text-center" title="Sell + Strong Sell">{breakdown.sell + breakdown.strongSell}</span>
+                <span className="flex-1 text-center" title="Sell">{breakdown.sell}</span>
+                <span className="flex-1 text-center" title="Strong Sell">{breakdown.strongSell}</span>
               </div>
             ) : (
               /* Fallback labels when no breakdown */
@@ -323,12 +394,14 @@ const AnalystMeter = ({ recommendation, growthData, targetPrice, currentPrice, t
             )}
           </div>
         </div>
-        {/* Breakdown summary - NO LEGEND BLOCKS */}
+        {/* Breakdown summary */}
         {breakdown && (
           <div className="flex items-center justify-between mt-2 text-[10px]">
-            <span className="text-green-400">{breakdown.strongBuy + breakdown.buy} Buy</span>
-            <span className="text-yellow-400">{breakdown.hold} Hold</span>
-            <span className="text-red-400">{breakdown.sell + breakdown.strongSell} Sell</span>
+            <span className="text-green-600 font-semibold">Strong Buy</span>
+            <span className="text-green-400">Buy</span>
+            <span className="text-yellow-400">Hold</span>
+            <span className="text-orange-400">Sell</span>
+            <span className="text-red-400">Strong Sell</span>
           </div>
         )}
         {/* Source info */}
@@ -342,15 +415,53 @@ const AnalystMeter = ({ recommendation, growthData, targetPrice, currentPrice, t
         {showAnalystAsPrimary && hasTarget && (
           <div className="flex items-center justify-between mt-1">
             <span className="text-[10px] text-white/40">Doelkoers</span>
-            <span className={`text-[10px] font-semibold ${targetUpside >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-              €{targetPrice.toFixed(2)} ({targetUpside >= 0 ? '+' : ''}{targetUpside.toFixed(1)}%)
+            <span className={`text-[10px] font-semibold ${typeof targetUpside === 'number' && targetUpside >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+              {typeof targetPrice === 'number' ? '€' + targetPrice.toFixed(2) : '---'} ({typeof targetUpside === 'number' ? (targetUpside >= 0 ? '+' : '') + targetUpside.toFixed(1) + '%' : '---'})
             </span>
           </div>
         )}
-        {/* FMP source badge */}
-        {showAnalystAsPrimary && recommendation?.source === 'FMP' && (
+        {/* Source badge */}
+        {showAnalystAsPrimary && recommendation?.source && (
           <div className="mt-2 flex items-center justify-end">
-            <span className="text-[8px] text-white/30 bg-white/5 px-2 py-0.5 rounded">FMP Data</span>
+            <span className="text-[8px] text-white/30 bg-white/5 px-2 py-0.5 rounded">{recommendation.source}</span>
+          </div>
+        )}
+
+        {/* AI Explanation Button */}
+        {hasAnalysts && !hideAIButton && (
+          <button
+            onClick={handleAIExplanation}
+            disabled={loadingAI}
+            className="mt-3 w-full bg-gradient-to-r from-purple-500/20 to-blue-500/20 hover:from-purple-500/30 hover:to-blue-500/30 border border-purple-500/30 text-purple-300 text-[11px] font-medium px-3 py-1.5 rounded-lg flex items-center justify-center space-x-1.5 transition-all disabled:opacity-50"
+          >
+            {loadingAI ? (
+              <>
+                <div className="w-3 h-3 border-2 border-purple-300/30 border-t-purple-300 rounded-full animate-spin" />
+                <span>Laden...</span>
+              </>
+            ) : (
+              <>
+                <span>🤖</span>
+                <span>{showAI ? 'Verberg AI Uitleg' : 'AI Uitleg'}</span>
+              </>
+            )}
+          </button>
+        )}
+
+        {/* AI Explanation Display */}
+        {showAI && (
+          <div className="mt-2 bg-purple-500/10 border border-purple-500/20 rounded-lg p-3">
+            {aiError ? (
+              <div className="flex items-start space-x-2">
+                <span className="text-lg">⚠️</span>
+                <p className="text-[11px] text-red-300 leading-relaxed">{aiError}</p>
+              </div>
+            ) : aiExplanation ? (
+              <div className="flex items-start space-x-2">
+                <span className="text-lg">🤖</span>
+                <p className="text-[11px] text-white/80 leading-relaxed">{aiExplanation}</p>
+              </div>
+            ) : null}
           </div>
         )}
         </div>
@@ -544,6 +655,21 @@ const getCurrencyFromExchange = (tvTicker) => {
   return 'USD';
 };
 
+// Human-readable relative timestamp (Dutch)
+const timeAgo = (date) => {
+  if (!date) return '';
+  const d = date instanceof Date ? date : new Date(date);
+  if (isNaN(d.getTime())) return '';
+  const now = Date.now();
+  const diff = Math.floor((now - d.getTime()) / 1000);
+  if (diff < 60) return 'Zojuist';
+  if (diff < 3600) return `${Math.floor(diff / 60)}m geleden`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}u geleden`;
+  if (diff < 172800) return 'Gisteren';
+  if (diff < 604800) return `${Math.floor(diff / 86400)}d geleden`;
+  return d.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' });
+};
+
 const BeleggenPage = () => {
   const [investments, setInvestments] = useState([]);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -592,6 +718,7 @@ const BeleggenPage = () => {
   const [screenerFilterSector, setScreenerFilterSector] = useState('all');
   const [screenerFilterPriceMin, setScreenerFilterPriceMin] = useState('');
   const [screenerFilterPriceMax, setScreenerFilterPriceMax] = useState('');
+  const [screenerFilterRSIMax, setScreenerFilterRSIMax] = useState('');
   const [chartFavorites, setChartFavorites] = useState(() => {
     try {
       const saved = localStorage.getItem('beleggen_chart_favorites');
@@ -617,9 +744,27 @@ const BeleggenPage = () => {
   const [screenerCategory, setScreenerCategory] = useState('large'); // 'large', 'growth', 'midcap'
   const [screenerData, setScreenerData] = useState({}); // { ticker: { price, change, growth, sparkline } }
   const [loadingScreenerData, setLoadingScreenerData] = useState(false);
+  const [dynamicScreenerTickers, setDynamicScreenerTickers] = useState({}); // { category: [...tickers] }
+  const [loadingDynamicTickers, setLoadingDynamicTickers] = useState(false);
   const [showDescPopup, setShowDescPopup] = useState(null); // investment id for description popup
   const [showNewsPopup, setShowNewsPopup] = useState(null); // investment id for news popup
   const [investmentNews, setInvestmentNews] = useState({}); // { investmentId: [news] }
+  const [newsSummary, setNewsSummary] = useState({}); // { investmentId: summary }
+  const [loadingNewsSummary, setLoadingNewsSummary] = useState({}); // { investmentId: boolean }
+  const [dutchMacroNews, setDutchMacroNews] = useState([]);
+  const [loadingDutchNews, setLoadingDutchNews] = useState(false);
+  const [macroNewsSummary, setMacroNewsSummary] = useState(null);
+  const [loadingMacroSummary, setLoadingMacroSummary] = useState(false);
+  const [marketBarometer, setMarketBarometer] = useState(null); // AI market barometer JSON string
+  const [loadingBarometer, setLoadingBarometer] = useState(false);
+  const [tickerNewsMap, setTickerNewsMap] = useState({}); // { ticker: [news...] }
+  const [aiBuyScores, setAiBuyScores] = useState({}); // { ticker: { score, verdict, confidence, reasons, one_liner, timeframe } }
+  const [loadingAiBuy, setLoadingAiBuy] = useState({}); // { ticker: boolean }
+  const [aiBuyModalTicker, setAiBuyModalTicker] = useState(null); // ticker string for the AI buy-check popup
+  const [macroSummaryMeta, setMacroSummaryMeta] = useState({ lastHash: '', lastGeneratedAt: 0 });
+  const [portfolioNewsSummary, setPortfolioNewsSummary] = useState(null);
+  const [loadingPortfolioSummary, setLoadingPortfolioSummary] = useState(false);
+  const [portfolioSummaryMeta, setPortfolioSummaryMeta] = useState({ lastHash: '', lastGeneratedAt: 0 });
   const [loadingInvNews, setLoadingInvNews] = useState({});
   const [myWatchlist, setMyWatchlist] = useState(() => {
     try {
@@ -640,6 +785,9 @@ const BeleggenPage = () => {
   // Analyst recommendations for user's investments
   const [analystData, setAnalystData] = useState({}); // { ticker: { mean, analysts, breakdown, targetPrice } }
   
+  // AI Settings
+  const [showAISettings, setShowAISettings] = useState(false);
+
   // Alerts system
   const [alerts, setAlerts] = useState([]);
   const [showAlertModal, setShowAlertModal] = useState(false);
@@ -657,8 +805,29 @@ const BeleggenPage = () => {
   const [showAIModal, setShowAIModal] = useState(false);
   const [selectedStockForAI, setSelectedStockForAI] = useState(null);
 
+  // Exchange rates (static for now, could be fetched from API)
+  const exchangeRates = {
+    EUR: 1,
+    USD: 0.92,
+    SEK: 0.087,
+    GBP: 1.16,
+    NOK: 0.087,
+    DKK: 0.134,
+    CHF: 1.04,
+    JPY: 0.0062,
+    CAD: 0.67,
+    AUD: 0.61,
+    HKD: 0.12
+  };
+
+  const convertToEUR = (amount, fromCurrency) => {
+    if (!amount || fromCurrency === 'EUR' || !exchangeRates[fromCurrency]) return amount;
+    return amount * exchangeRates[fromCurrency];
+  };
+
   useEffect(() => {
     loadInvestments();
+    fetchDutchMacroNews();
   }, []);
 
   useEffect(() => {
@@ -833,47 +1002,52 @@ const BeleggenPage = () => {
     setStockPrices(prices);
     setLoadingPrices(false);
     
-    // Fetch analyst data from FMP (separate call for better reliability)
+    // Fetch analyst data from Yahoo Finance (FREE!)
     const tickersWithPrices = Object.keys(prices);
     if (tickersWithPrices.length > 0) {
-      fetchFMPAnalystData(tickersWithPrices);
+      fetchYahooAnalystData(tickersWithPrices);
     }
   };
 
-  // Fetch analyst data from FMP API
-  const fetchFMPAnalystData = async (tickers) => {
+  // Fetch analyst data from Yahoo Finance (FREE! Direct fetch)
+  const fetchYahooAnalystData = async (tickers) => {
     if (!tickers || tickers.length === 0) return;
     
-    console.log('🔍 Fetching FMP analyst data for tickers:', tickers);
+    console.log('🔍 Fetching Yahoo analyst data for tickers:', tickers);
     
     try {
-      const response = await axios.get('/api/fmp-analyst', {
-        params: { tickers: tickers.join(',') }
-      });
+      const results = await fetchYahooAnalystBatch(tickers);
       
-      console.log('📊 FMP Response:', response.data);
-      
-      if (response.data?.results) {
-        const resultCount = Object.keys(response.data.results).length;
-        console.log(`✅ Got analyst data for ${resultCount} tickers:`, Object.keys(response.data.results));
+      if (Object.keys(results).length > 0) {
+        console.log(`✅ Got Yahoo analyst data for ${Object.keys(results).length} tickers`);
         
-        // Merge FMP data with existing analyst data (prefer FMP if available)
         setAnalystData(prev => {
-          const merged = { ...prev };
-          Object.keys(response.data.results).forEach(ticker => {
-            merged[ticker] = response.data.results[ticker];
-          });
-          console.log('💾 Merged analyst data:', merged);
+          const merged = { ...prev, ...results };
           return merged;
         });
       } else {
-        console.warn('⚠️ No results in FMP response');
+        console.warn('⚠️ No results from Yahoo analyst fetch');
       }
     } catch (error) {
-      console.error('❌ Error fetching FMP analyst data:', error.message);
-      // Fallback to Yahoo Finance data if FMP fails
+      console.error('❌ Error fetching Yahoo analyst data:', error.message);
     }
   };
+
+  // Fetch Dutch macro news from nu.nl
+  const fetchDutchMacroNews = async () => {
+    setLoadingDutchNews(true);
+    try {
+      const response = await axios.get('/api/iex-news');
+      if (response.data?.articles) {
+        setDutchMacroNews(response.data.articles);
+      }
+    } catch (error) {
+      console.error('❌ Error fetching Dutch macro news:', error.message);
+    } finally {
+      setLoadingDutchNews(false);
+    }
+  };
+
 
   const loadInvestments = async () => {
     try {
@@ -926,19 +1100,23 @@ const BeleggenPage = () => {
 
   const addInvestment = async () => {
     if (!newInvestment.name.trim()) return;
-    
+
     const calculatedAmount = newInvestment.shares && newInvestment.purchase_price
       ? parseFloat(newInvestment.shares) * parseFloat(newInvestment.purchase_price)
       : parseFloat(newInvestment.amount) || 0;
-    
+
+    const currency = newInvestment.purchase_currency || 'EUR';
+    const amountEUR = convertToEUR(calculatedAmount, currency);
+
     try {
       const investment = {
         name: newInvestment.name.trim(),
         type: newInvestment.type,
-        amount: calculatedAmount,
+        amount: amountEUR,
         ticker_symbol: newInvestment.ticker_symbol?.trim().toUpperCase() || null,
         shares: newInvestment.shares ? parseFloat(newInvestment.shares) : null,
         purchase_price: newInvestment.purchase_price ? parseFloat(newInvestment.purchase_price) : null,
+        purchase_currency: newInvestment.purchase_currency || 'EUR',
         sector: newInvestment.sector || null,
         thumbnail_url: newInvestment.thumbnail_url || null,
         circular_thumbnail: newInvestment.circular_thumbnail || false,
@@ -973,19 +1151,23 @@ const BeleggenPage = () => {
 
   const updateInvestment = async () => {
     if (!editingInvestment || !editingInvestment.name.trim()) return;
-    
+
     const calculatedAmount = editingInvestment.shares && editingInvestment.purchase_price
       ? parseFloat(editingInvestment.shares) * parseFloat(editingInvestment.purchase_price)
       : parseFloat(editingInvestment.amount) || 0;
-    
+
+    const currency = editingInvestment.purchase_currency || 'EUR';
+    const amountEUR = convertToEUR(calculatedAmount, currency);
+
     try {
       const updates = {
         name: editingInvestment.name.trim(),
         type: editingInvestment.type,
-        amount: calculatedAmount,
+        amount: amountEUR,
         ticker_symbol: editingInvestment.ticker_symbol?.trim().toUpperCase() || null,
         shares: editingInvestment.shares ? parseFloat(editingInvestment.shares) : null,
         purchase_price: editingInvestment.purchase_price ? parseFloat(editingInvestment.purchase_price) : null,
+        purchase_currency: editingInvestment.purchase_currency || 'EUR',
         sector: editingInvestment.sector || null,
         thumbnail_url: editingInvestment.thumbnail_url || null,
         circular_thumbnail: editingInvestment.circular_thumbnail || false,
@@ -1046,6 +1228,7 @@ const BeleggenPage = () => {
       ticker_symbol: '',
       shares: '',
       purchase_price: '',
+      purchase_currency: 'EUR',
       sector: '',
       thumbnail_url: '',
       circular_thumbnail: false,
@@ -1060,39 +1243,51 @@ const BeleggenPage = () => {
     if (!investment.ticker_symbol || !investment.shares || !stockPrices[investment.ticker_symbol]) {
       return investment.amount;
     }
+    const priceData = stockPrices[investment.ticker_symbol];
     // For short positions, value is based on opening price (what you borrowed)
     // For long positions, value is based on current price
     if (investment.is_short) {
-      return investment.shares * investment.purchase_price;
+      const purchasePrice = investment.purchase_price || 0;
+      const purchaseCurrency = investment.purchase_currency || 'EUR';
+      return investment.shares * convertToEUR(purchasePrice, purchaseCurrency);
     }
-    return investment.shares * stockPrices[investment.ticker_symbol].current;
+    const currentPrice = priceData.current;
+    const currency = priceData.currency || 'EUR';
+    return investment.shares * convertToEUR(currentPrice, currency);
   };
 
   const calculateProfitLoss = (investment) => {
     if (!investment.ticker_symbol || !investment.shares || !investment.purchase_price) {
       return { amount: 0, percentage: 0, error: 'missing_data' };
     }
-    
+
     const priceData = stockPrices[investment.ticker_symbol];
     if (!priceData || priceData.current === null) {
       return { amount: 0, percentage: 0, error: 'no_price_data' };
     }
-    
+
     const currentPrice = priceData.current;
     const purchasePrice = investment.purchase_price;
     const shares = investment.shares;
+    const purchaseCurrency = investment.purchase_currency || 'EUR';
+
+    // Convert purchase price to EUR if needed
+    const purchasePriceEUR = convertToEUR(purchasePrice, purchaseCurrency);
+
+    // Convert current price to EUR if needed (stockPrices already has currency info)
+    const currentPriceEUR = priceData.currency === 'EUR' ? currentPrice : convertToEUR(currentPrice, priceData.currency);
 
     // For short positions: profit when price goes DOWN (purchase - current)
     // For long positions: profit when price goes UP (current - purchase)
     if (investment.is_short) {
-      const currentValue = shares * purchasePrice; // Value at opening the short
-      const closeValue = shares * currentPrice; // Value at closing the short
+      const currentValue = shares * purchasePriceEUR; // Value at opening the short (in EUR)
+      const closeValue = shares * currentPriceEUR; // Value at closing the short (in EUR)
       const profitLoss = currentValue - closeValue; // Profit = opening - closing
       const profitLossPercent = (profitLoss / currentValue) * 100;
       return { amount: profitLoss, percentage: profitLossPercent };
     } else {
-      const currentValue = shares * currentPrice;
-      const purchaseValue = shares * purchasePrice;
+      const currentValue = shares * currentPriceEUR;
+      const purchaseValue = shares * purchasePriceEUR;
       const profitLoss = currentValue - purchaseValue;
       const profitLossPercent = (profitLoss / purchaseValue) * 100;
       return { amount: profitLoss, percentage: profitLossPercent };
@@ -1311,6 +1506,31 @@ const BeleggenPage = () => {
     { ticker: 'DOCS', name: 'Doximity', sector: 'HealthTech', why: 'LinkedIn voor artsen, hoge marges' },
     { ticker: 'DNA', name: 'Ginkgo Bioworks', sector: 'Synth Bio', why: 'Synthetische biologie platform, breed toepasbaar' },
     { ticker: 'GENI', name: 'Genius Sports', sector: 'SportsTech', why: 'Officiële sportdata & betting technologie' },
+    
+    // Additional High-Potential Gems
+    { ticker: 'PLTR', name: 'Palantir', sector: 'AI/Data', why: 'AI platform voor overheid & enterprise, sterke groei' },
+    { ticker: 'CRWD', name: 'CrowdStrike', sector: 'Cybersecurity', why: 'Cloud security leader, hoge groei' },
+    { ticker: 'NET', name: 'Cloudflare', sector: 'Cloud/CDN', why: 'Edge computing & security, groeiend' },
+    { ticker: 'DDOG', name: 'Datadog', sector: 'Monitoring', why: 'Cloud monitoring platform, sterke retentie' },
+    { ticker: 'MDB', name: 'MongoDB', sector: 'Database', why: 'NoSQL database leader, enterprise adoptie' },
+    { ticker: 'SNOW', name: 'Snowflake', sector: 'Data Cloud', why: 'Cloud data platform, hoge groei' },
+    { ticker: 'ZS', name: 'Zscaler', sector: 'Cloud Security', why: 'Zero trust security, groeiend marktaandeel' },
+    { ticker: 'OKTA', name: 'Okta', sector: 'Identity', why: 'Identity management platform' },
+    { ticker: 'ESTC', name: 'Elastic', sector: 'Search/Analytics', why: 'Search & analytics platform' },
+    { ticker: 'BILL', name: 'Bill.com', sector: 'FinTech', why: 'SMB betalingsplatform, sterke groei' },
+    { ticker: 'AFRM', name: 'Affirm', sector: 'FinTech', why: 'Buy now pay later platform' },
+    { ticker: 'UPST', name: 'Upstart', sector: 'AI Lending', why: 'AI-gedreven kredietverlening' },
+    { ticker: 'SOFI', name: 'SoFi', sector: 'FinTech', why: 'Digital banking platform, groeiend' },
+    { ticker: 'NU', name: 'Nu Holdings', sector: 'FinTech', why: 'Latijns-Amerika digital bank, massale groei' },
+    { ticker: 'RBLX', name: 'Roblox', sector: 'Gaming/Metaverse', why: 'Gaming platform, jonge gebruikersbasis' },
+    { ticker: 'U', name: 'Unity', sector: 'Gaming Tech', why: 'Game development platform' },
+    { ticker: 'RIVN', name: 'Rivian', sector: 'EV', why: 'Elektrische trucks & SUVs, Amazon partnership' },
+    { ticker: 'LCID', name: 'Lucid Motors', sector: 'EV', why: 'Luxury EV maker, Saudi backing' },
+    { ticker: 'CHPT', name: 'ChargePoint', sector: 'EV Charging', why: 'EV laadnetwerk leader' },
+    { ticker: 'PLUG', name: 'Plug Power', sector: 'Hydrogen', why: 'Waterstof brandstofcellen' },
+    { ticker: 'FSLR', name: 'First Solar', sector: 'Solar', why: 'US solar manufacturing, IRA profiteur' },
+    { ticker: 'ENPH', name: 'Enphase', sector: 'Solar', why: 'Solar microinverters, sterke marges' },
+    { ticker: 'SEDG', name: 'SolarEdge', sector: 'Solar', why: 'Solar inverters & optimizers' },
   ];
 
   const scanHiddenGems = async () => {
@@ -1641,16 +1861,6 @@ const BeleggenPage = () => {
         } catch (e) { /* continue */ }
       }
 
-      // Strategy 3: Company name + "stock" for relevant results
-      if (allNews.length < 3) {
-        try {
-          const cleanName = investment.name.replace(/\s+(Inc|Corp|Ltd|plc|UCITS|ETF|SA|NV|AG|SE|GmbH)\b/gi, '').trim();
-          const url3 = `https://query1.finance.yahoo.com/v1/finance/search?q="${cleanName}" stock&newsCount=5&quotesCount=0`;
-          const res3 = await axios.get(`${CORS_PROXY}${encodeURIComponent(url3)}`);
-          (res3.data.news || []).forEach(n => allNews.push(n));
-        } catch (e) { /* continue */ }
-      }
-
       // Strategy 4: Just company name as last resort
       if (allNews.length < 3) {
         try {
@@ -1673,6 +1883,20 @@ const BeleggenPage = () => {
           publishedAt: n.providerPublishTime ? new Date((typeof n.providerPublishTime === 'number' ? n.providerPublishTime : parseInt(n.providerPublishTime)) * 1000) : null,
         }));
       setInvestmentNews(prev => ({ ...prev, [id]: news }));
+
+      // Auto-trigger AI summary if we have news
+      if (news.length > 0 && !newsSummary[investment.id]) {
+        setLoadingNewsSummary(prev => ({ ...prev, [investment.id]: true }));
+        try {
+          const userKey = typeof localStorage !== 'undefined' ? localStorage.getItem('openai_api_key') : null;
+          const summary = await getAIExplanation('news', investment.ticker_symbol || investment.name, news, userKey);
+          setNewsSummary(prev => ({ ...prev, [investment.id]: summary }));
+        } catch (error) {
+          console.error('Error generating AI news summary:', error);
+        } finally {
+          setLoadingNewsSummary(prev => ({ ...prev, [investment.id]: false }));
+        }
+      }
     } catch (e) {
       setInvestmentNews(prev => ({ ...prev, [id]: [] }));
     }
@@ -1759,117 +1983,99 @@ const BeleggenPage = () => {
     setLoadingWlSearch(false);
   };
 
-  // Screener categories: curated ticker lists
+  // Screener categories: curated ticker lists with strong selection rationale
   const SCREENER_CATEGORIES = {
     large: {
       label: 'Top Performers',
-      description: 'Grote bedrijven die het goed doen',
+      description: 'Dominante marktleiders met sterke analyst buy-ratings en momentum',
       tickers: [
-        { ticker: 'AAPL', name: 'Apple', sector: 'Technology' },
-        { ticker: 'MSFT', name: 'Microsoft', sector: 'Technology' },
-        { ticker: 'NVDA', name: 'NVIDIA', sector: 'Technology' },
-        { ticker: 'GOOGL', name: 'Alphabet', sector: 'Technology' },
-        { ticker: 'AMZN', name: 'Amazon', sector: 'Consumer' },
-        { ticker: 'META', name: 'Meta', sector: 'Technology' },
-        { ticker: 'AVGO', name: 'Broadcom', sector: 'Technology' },
-        { ticker: 'LLY', name: 'Eli Lilly', sector: 'Healthcare' },
-        { ticker: 'V', name: 'Visa', sector: 'Financial' },
-        { ticker: 'JPM', name: 'JPMorgan', sector: 'Financial' },
-        { ticker: 'TSLA', name: 'Tesla', sector: 'Consumer' },
-        { ticker: 'NFLX', name: 'Netflix', sector: 'Technology' },
-        { ticker: 'COST', name: 'Costco', sector: 'Consumer' },
-        { ticker: 'MA', name: 'Mastercard', sector: 'Financial' },
-        { ticker: 'UNH', name: 'UnitedHealth', sector: 'Healthcare' },
-        { ticker: 'HD', name: 'Home Depot', sector: 'Consumer' },
-        { ticker: 'PG', name: 'Procter & Gamble', sector: 'Consumer' },
-        { ticker: 'WMT', name: 'Walmart', sector: 'Consumer' },
-        { ticker: 'XOM', name: 'ExxonMobil', sector: 'Energy' },
-        { ticker: 'ORCL', name: 'Oracle', sector: 'Technology' },
+        { ticker: 'NVDA', name: 'NVIDIA', sector: 'Technology', why: 'Dominante AI-chipmaker, datacenter groei explosief' },
+        { ticker: 'META', name: 'Meta Platforms', sector: 'Technology', why: 'AI-investering + advertentiegroei + Reality Labs' },
+        { ticker: 'MSFT', name: 'Microsoft', sector: 'Technology', why: 'Azure cloud + Copilot AI-integratie breed uitgerold' },
+        { ticker: 'AVGO', name: 'Broadcom', sector: 'Technology', why: 'AI ASIC-chips + VMware-integratie versterkt marktpositie' },
+        { ticker: 'AMZN', name: 'Amazon', sector: 'Consumer', why: 'AWS cloud #1 + sterk e-commerce herstel' },
+        { ticker: 'GOOGL', name: 'Alphabet', sector: 'Technology', why: 'AI Overviews + cloud groei + YouTube momentum' },
+        { ticker: 'JPM', name: 'JPMorgan', sector: 'Financial', why: 'Sterkste bank VS, hoge rentemarge profiteur' },
+        { ticker: 'LLY', name: 'Eli Lilly', sector: 'Healthcare', why: 'GLP-1 (Mounjaro/Zepbound) marktleider obesitas/diabetes' },
+        { ticker: 'V', name: 'Visa', sector: 'Financial', why: 'Monopolistisch betaalnetwerk, stabiele cashflow machine' },
+        { ticker: 'COST', name: 'Costco', sector: 'Consumer', why: 'Uitzonderlijk loyale klantenbasis, consistente groei' },
+        { ticker: 'NFLX', name: 'Netflix', sector: 'Technology', why: 'Ad-tier groei + live sport = nieuw groeistadium' },
+        { ticker: 'MA', name: 'Mastercard', sector: 'Financial', why: 'Duopolie betalingsverkeer wereldwijd, pricing power' },
+        { ticker: 'ORCL', name: 'Oracle', sector: 'Technology', why: 'Cloud database + AI training infrastructure boom' },
+        { ticker: 'NOW', name: 'ServiceNow', sector: 'Technology', why: 'Enterprise AI-automatisering, hoge retention' },
+        { ticker: 'AXON', name: 'Axon Enterprise', sector: 'Industrial', why: 'Monopolie publieke veiligheid + SaaS-platform groeit hard' },
       ]
     },
     growth: {
       label: 'Potentiële Groeiers',
-      description: 'Kleine bedrijven met hoog groeipotentieel',
+      description: 'Disruptieve small-caps met exponentieel groeipotentieel en sterke thesis',
       tickers: [
-        { ticker: 'SOUN', name: 'SoundHound AI', sector: 'Technology' },
-        { ticker: 'RKLB', name: 'Rocket Lab', sector: 'Industrial' },
-        { ticker: 'IONQ', name: 'IonQ', sector: 'Technology' },
-        { ticker: 'ASTS', name: 'AST SpaceMobile', sector: 'Technology' },
-        { ticker: 'ACHR', name: 'Archer Aviation', sector: 'Industrial' },
-        { ticker: 'LUNR', name: 'Intuitive Machines', sector: 'Industrial' },
-        { ticker: 'RGTI', name: 'Rigetti Computing', sector: 'Technology' },
-        { ticker: 'SERV', name: 'Serve Robotics', sector: 'Technology' },
-        { ticker: 'QS', name: 'QuantumScape', sector: 'Industrial' },
-        { ticker: 'RXRX', name: 'Recursion Pharma', sector: 'Healthcare' },
-        { ticker: 'PLTR', name: 'Palantir', sector: 'Technology' },
-        { ticker: 'BBAI', name: 'BigBear.ai', sector: 'Technology' },
-        { ticker: 'PATH', name: 'UiPath', sector: 'Technology' },
-        { ticker: 'AI', name: 'C3.ai', sector: 'Technology' },
-        { ticker: 'GENI', name: 'Genius Sports', sector: 'Technology' },
-        { ticker: 'JOBY', name: 'Joby Aviation', sector: 'Industrial' },
-        { ticker: 'NU', name: 'Nu Holdings', sector: 'Financial' },
-        { ticker: 'HIMS', name: 'Hims & Hers', sector: 'Healthcare' },
-        { ticker: 'OSCR', name: 'Oscar Health', sector: 'Healthcare' },
-        { ticker: 'AFRM', name: 'Affirm', sector: 'Financial' },
+        { ticker: 'PLTR', name: 'Palantir', sector: 'Technology', why: 'AI-platform overheid + enterprise, AIP groeit explosief' },
+        { ticker: 'RKLB', name: 'Rocket Lab', sector: 'Industrial', why: 'Enige serieuze concurrent SpaceX small-launch markt' },
+        { ticker: 'ASTS', name: 'AST SpaceMobile', sector: 'Technology', why: 'Satelliet-direct-naar-mobiel, nog pre-revenue maar uniek' },
+        { ticker: 'HIMS', name: 'Hims & Hers', sector: 'Healthcare', why: 'Telehealth + GLP-1 compound groei, jong en schaalbaar' },
+        { ticker: 'NU', name: 'Nu Holdings', sector: 'Financial', why: 'Grootste neobank LatAm, >100M klanten, winstgevend' },
+        { ticker: 'IONQ', name: 'IonQ', sector: 'Technology', why: 'Kwantumcomputing leider, Microsoft/AWS partnerships' },
+        { ticker: 'RXRX', name: 'Recursion Pharma', sector: 'Healthcare', why: 'AI drug discovery + NVIDIA-partnership, unieke aanpak' },
+        { ticker: 'SERV', name: 'Serve Robotics', sector: 'Technology', why: 'Autonomous delivery robot, Uber/NVDA backed' },
+        { ticker: 'ACHR', name: 'Archer Aviation', sector: 'Industrial', why: 'eVTOL luchtmobiliteit, FAA-certificering dichtbij' },
+        { ticker: 'AFRM', name: 'Affirm', sector: 'Financial', why: 'BNPL-leider VS, Apple Pay Later fallout profiteur' },
+        { ticker: 'JOBY', name: 'Joby Aviation', sector: 'Industrial', why: 'Air taxi, Toyota backed, commercieel rijp in 2025-26' },
+        { ticker: 'SOUN', name: 'SoundHound AI', sector: 'Technology', why: 'Voice AI voor automotive/restaurant sector, niche leider' },
+        { ticker: 'BBAI', name: 'BigBear.ai', sector: 'Technology', why: 'AI beslissingsintelligentie defensie + logistiek' },
+        { ticker: 'QS', name: 'QuantumScape', sector: 'Industrial', why: 'Solid-state EV-batterij, Volkswagen backed' },
+        { ticker: 'LUNR', name: 'Intuitive Machines', sector: 'Industrial', why: 'NASA CLPS maan-contracten, enige private maanlander' },
       ]
     },
     midcap: {
       label: 'Mid-cap Groeiers',
-      description: 'Middelgrote bedrijven in groeifase',
+      description: 'Bewezen groeibedrijven met schaalvoordeel en sterke analyst consensus',
       tickers: [
-        { ticker: 'CRWD', name: 'CrowdStrike', sector: 'Technology' },
-        { ticker: 'DDOG', name: 'Datadog', sector: 'Technology' },
-        { ticker: 'NET', name: 'Cloudflare', sector: 'Technology' },
-        { ticker: 'DUOL', name: 'Duolingo', sector: 'Technology' },
-        { ticker: 'GTLB', name: 'GitLab', sector: 'Technology' },
-        { ticker: 'CELH', name: 'Celsius', sector: 'Consumer' },
-        { ticker: 'AXON', name: 'Axon Enterprise', sector: 'Industrial' },
-        { ticker: 'PCVX', name: 'Vaxcyte', sector: 'Healthcare' },
-        { ticker: 'TMDX', name: 'TransMedics', sector: 'Healthcare' },
-        { ticker: 'S', name: 'SentinelOne', sector: 'Technology' },
-        { ticker: 'SNOW', name: 'Snowflake', sector: 'Technology' },
-        { ticker: 'MDB', name: 'MongoDB', sector: 'Technology' },
-        { ticker: 'ZS', name: 'Zscaler', sector: 'Technology' },
-        { ticker: 'TEAM', name: 'Atlassian', sector: 'Technology' },
-        { ticker: 'NOW', name: 'ServiceNow', sector: 'Technology' },
-        { ticker: 'SHOP', name: 'Shopify', sector: 'Technology' },
-        { ticker: 'SQ', name: 'Block', sector: 'Financial' },
-        { ticker: 'ROKU', name: 'Roku', sector: 'Technology' },
-        { ticker: 'TWLO', name: 'Twilio', sector: 'Technology' },
-        { ticker: 'ZM', name: 'Zoom', sector: 'Technology' },
+        { ticker: 'CRWD', name: 'CrowdStrike', sector: 'Technology', why: 'Cybersec platform-leider, ARR groeit >30% YoY' },
+        { ticker: 'DDOG', name: 'Datadog', sector: 'Technology', why: 'Cloud observability #1, AI-features in elke module' },
+        { ticker: 'NET', name: 'Cloudflare', sector: 'Technology', why: 'Zero-trust netwerk + AI inference infra, sticky platform' },
+        { ticker: 'DUOL', name: 'Duolingo', sector: 'Technology', why: 'AI-personalisatie + Max-tier groei, daily active users up' },
+        { ticker: 'SNOW', name: 'Snowflake', sector: 'Technology', why: 'Data cloud + AI/ML workloads, Cortex AI lancering' },
+        { ticker: 'MDB', name: 'MongoDB', sector: 'Technology', why: 'Document DB + Atlas cloud sterk, AI vector search groeier' },
+        { ticker: 'ZS', name: 'Zscaler', sector: 'Technology', why: 'Zero-trust cloud security, enterprise migratie versnelt' },
+        { ticker: 'SHOP', name: 'Shopify', sector: 'Technology', why: 'E-commerce infra + AI-tools merchant, internationale groei' },
+        { ticker: 'CELH', name: 'Celsius', sector: 'Consumer', why: 'Energy drink challenger, Pepsi-distributie + int. expansie' },
+        { ticker: 'GTLB', name: 'GitLab', sector: 'Technology', why: 'DevSecOps platform, AI code review integratie' },
+        { ticker: 'S', name: 'SentinelOne', sector: 'Technology', why: 'AI-native endpoint security, concurreert sterk met CRWD' },
+        { ticker: 'TEAM', name: 'Atlassian', sector: 'Technology', why: 'Jira/Confluence cloud + Rovo AI agent, hoge enterprise lock-in' },
+        { ticker: 'HCP', name: 'HashiCorp', sector: 'Technology', why: 'Infrastructure automation, IBM overname biedt upside' },
+        { ticker: 'APP', name: 'AppLovin', sector: 'Technology', why: 'Mobile gaming + ad-tech AI, explosieve margegroei' },
+        { ticker: 'TTD', name: 'The Trade Desk', sector: 'Technology', why: 'Programmatic advertising + Kokai AI-platform heerlancering' },
       ]
     },
     etf: {
       label: 'ETFs',
-      description: 'Gepubliceerde indexfondsen voor spreiding',
+      description: 'Gespreide indexfondsen voor breed marktbeheer',
       tickers: [
-        { ticker: 'SPY', name: 'SPDR S&P 500 ETF', sector: 'Materials' },
-        { ticker: 'QQQ', name: 'Invesco QQQ Trust', sector: 'Technology' },
-        { ticker: 'VGT', name: 'Vanguard Information Tech', sector: 'Technology' },
-        { ticker: 'ARKK', name: 'ARK Innovation ETF', sector: 'Technology' },
-        { ticker: 'SMH', name: 'Semiconductor ETF', sector: 'Technology' },
-        { ticker: 'XLE', name: 'Energy Select Sector SPDR', sector: 'Energy' },
-        { ticker: 'XLV', name: 'Health Care Select Sector', sector: 'Healthcare' },
-        { ticker: 'XLF', name: 'Financial Select Sector', sector: 'Financial' },
-        { ticker: 'IJH', name: 'iShares Core S&P Mid-Cap', sector: 'Materials' },
-        { ticker: 'IWM', name: 'iShares Russell 2000', sector: 'Materials' },
-        { ticker: 'VTI', name: 'Vanguard Total Stock Market', sector: 'Materials' },
-        { ticker: 'VOO', name: 'Vanguard S&P 500', sector: 'Materials' },
-        { ticker: 'VEA', name: 'Vanguard Developed Markets', sector: 'Materials' },
-        { ticker: 'VWO', name: 'Vanguard Emerging Markets', sector: 'Materials' },
-        { ticker: 'IBIT', name: 'iShares Bitcoin ETF', sector: 'Financial' },
-        { ticker: 'GLD', name: 'SPDR Gold Trust', sector: 'Materials' },
-        { ticker: 'TLT', name: '20+ Year Treasury Bond', sector: 'Financial' },
-        { ticker: 'XLK', name: 'Technology Select Sector', sector: 'Technology' },
-        { ticker: 'XLY', name: 'Consumer Discretionary', sector: 'Consumer' },
-        { ticker: 'XLP', name: 'Consumer Staples', sector: 'Consumer' },
+        { ticker: 'SPY', name: 'SPDR S&P 500 ETF', sector: 'Index', why: 'Benchmark S&P 500, meest liquide ETF ter wereld' },
+        { ticker: 'QQQ', name: 'Invesco QQQ Trust', sector: 'Technology', why: 'NASDAQ-100 tech focus, kernbezit voor groei' },
+        { ticker: 'VGT', name: 'Vanguard Info Tech', sector: 'Technology', why: 'Brede tech exposure lage kosten, sterk lange termijn' },
+        { ticker: 'SMH', name: 'VanEck Semiconductor', sector: 'Technology', why: 'Pure-play chips ETF: NVDA TSMC ASML in één' },
+        { ticker: 'ARKK', name: 'ARK Innovation ETF', sector: 'Technology', why: 'Disruptieve innovatie focus, hoog risico/rendement' },
+        { ticker: 'IBIT', name: 'iShares Bitcoin ETF', sector: 'Financial', why: 'Institutionele Bitcoin exposure via BlackRock' },
+        { ticker: 'XLE', name: 'Energy Select SPDR', sector: 'Energy', why: 'Energiebedrijven VS, bescherming vs inflatie' },
+        { ticker: 'XLV', name: 'Health Care SPDR', sector: 'Healthcare', why: 'Defensieve healthcare exposure, vergrijzing tailwind' },
+        { ticker: 'XLF', name: 'Financial SPDR', sector: 'Financial', why: 'Banken & verzekeraars, hoge rente profiteur' },
+        { ticker: 'IWM', name: 'iShares Russell 2000', sector: 'Index', why: 'Small-cap VS, profiteert van rentedaling' },
+        { ticker: 'VOO', name: 'Vanguard S&P 500', sector: 'Index', why: 'Laagste kosten S&P 500 ETF, ideaal langetermijn' },
+        { ticker: 'GLD', name: 'SPDR Gold Trust', sector: 'Materials', why: 'Goud hedge tegen inflatie en geopolitieke risico\'s' },
+        { ticker: 'TLT', name: '20+ Year Treasury', sector: 'Financial', why: 'Lange obligaties, stijgt bij rentedaling verwachting' },
+        { ticker: 'VEA', name: 'Vanguard Developed Markets', sector: 'International', why: 'Europa + Japan exposure, diversificatie buiten VS' },
+        { ticker: 'VWO', name: 'Vanguard Emerging Markets', sector: 'International', why: 'Opkomende markten: India China Brazilië' },
       ]
     }
   };
 
   // Fetch live data for screener category tickers
   const fetchScreenerCategoryData = async (category) => {
-    const tickers = SCREENER_CATEGORIES[category]?.tickers || [];
+    // Use dynamic tickers from Yahoo screener if already fetched, otherwise fallback to hardcoded
+    const dynamic = dynamicScreenerTickers[category];
+    const tickers = (dynamic && dynamic.length > 0) ? dynamic : (SCREENER_CATEGORIES[category]?.tickers || []);
     if (tickers.length === 0) return;
     
     setLoadingScreenerData(true);
@@ -1911,16 +2117,29 @@ const BeleggenPage = () => {
           recommendation: stock.recommendation || null,
           targetPrice: stock.targetPrice || null,
           rsi: stock.rsi,
-          macd: null,
+          macd: stock.macd || null,
           sma50: stock.sma50,
           sma200: stock.sma200,
+          ema20: stock.ema20,
+          ema50: stock.ema50,
+          emaTrendUp: stock.emaTrendUp,
+          bb: stock.bb || null,
+          adx: stock.adx,
+          adxDirection: stock.adxDirection,
+          stochRsi: stock.stochRsi,
+          atr: stock.atr,
+          near52wHigh: stock.near52wHigh,
+          near52wLow: stock.near52wLow,
+          obvUp: stock.obvUp,
+          sma50SlopePositive: stock.sma50SlopePositive,
+          mfi: stock.mfi,
           signal: {
             overall: stock.signal,
             score: stock.signalScore,
             reasons: stock.signalReasons
           },
-          volume: stock.currentVolume,
-          avgVolume: stock.avgVolume20d,
+          currentVolume: stock.currentVolume,
+          avgVolume20d: stock.avgVolume20d,
           volumeRatio: stock.volumeRatio,
           marketCap: stock.marketCap,
           qualityScore: stock.qualityScore,
@@ -1931,12 +2150,12 @@ const BeleggenPage = () => {
         };
       });
       
-      setScreenerData(newScreenerData);
+      setScreenerData(prev => ({ ...prev, ...newScreenerData }));
       
-      // Also fetch dedicated FMP analyst data for screener tickers (more reliable)
+      // Also fetch Yahoo analyst data for screener tickers
       const screenerTickers = results.map(s => s.ticker);
       if (screenerTickers.length > 0) {
-        fetchFMPAnalystData(screenerTickers);
+        fetchYahooAnalystData(screenerTickers);
       }
       
     } catch (error) {
@@ -1946,73 +2165,262 @@ const BeleggenPage = () => {
     setLoadingScreenerData(false);
   };
 
+  // Fetch dynamic ticker list from Yahoo Finance screener for a category
+  const fetchDynamicScreenerTickers = async (category, force = false) => {
+    if (!force && (dynamicScreenerTickers[category] || loadingDynamicTickers)) return;
+    setLoadingDynamicTickers(true);
+    try {
+      const res = await axios.get('/api/screener-discover', { params: { category } });
+      const tickers = res.data.tickers || [];
+      if (tickers.length > 0) {
+        setDynamicScreenerTickers(prev => ({ ...prev, [category]: tickers }));
+      }
+    } catch (e) {
+      console.warn('Dynamic screener fetch failed, using fallback:', e.message);
+    }
+    setLoadingDynamicTickers(false);
+  };
+
   // Auto-fetch screener data when category changes
   useEffect(() => {
+    // If we already have dynamic tickers but sectors look invalid, force refresh
+    const existing = dynamicScreenerTickers[screenerCategory];
+    const hasBadSector = Array.isArray(existing) && existing.some(t => {
+      const s = String(t.sector || '').trim().toLowerCase();
+      return !s || s === 'unknown' || s === 'n/a' || s === '-' || s === 'none';
+    });
+    fetchDynamicScreenerTickers(screenerCategory, !!hasBadSector);
     fetchScreenerCategoryData(screenerCategory);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screenerCategory]);
+
+  // Re-fetch live data once dynamic tickers arrive for the active category
+  useEffect(() => {
+    if (dynamicScreenerTickers[screenerCategory]?.length > 0) {
+      fetchScreenerCategoryData(screenerCategory);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dynamicScreenerTickers]);
+
+  // Fetch news for a list of tickers (used by hidden gems & watchlist)
+  const fetchNewsForTickers = async (tickers, forceRefresh = false) => {
+    if (!tickers || tickers.length === 0) return;
+
+    // Filter out already fetched tickers unless forceRefresh is true
+    const tickersToFetch = forceRefresh ? tickers : tickers.filter(t => !tickerNewsMap[t]);
+    if (tickersToFetch.length === 0) return;
+
+    try {
+      const response = await axios.get(`/api/news`, {
+        params: { tickers: tickersToFetch.join(',') }
+      });
+
+      const articles = response.data?.articles || [];
+
+      // Group news by ticker
+      const newsByTicker = {};
+      tickersToFetch.forEach(t => { newsByTicker[t] = []; });
+
+      articles.forEach(article => {
+        const ticker = article.relatedTicker || article.ticker;
+        if (ticker && newsByTicker[ticker] !== undefined && newsByTicker[ticker].length < 3) {
+          newsByTicker[ticker].push(article);
+        }
+      });
+
+      setTickerNewsMap(prev => ({ ...prev, ...newsByTicker }));
+    } catch (error) {
+      console.error('Error fetching ticker news:', error);
+    }
+  };
+
+  // Auto-fetch news for screener tickers when data loads
+  useEffect(() => {
+    const tickers = Object.keys(screenerData).slice(0, 20); // limit to top 20
+    if (tickers.length > 0) {
+      fetchNewsForTickers(tickers);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screenerData]);
+
+  // Helper to compute a simple hash over titles to detect changes
+  const computeMacroHash = (newsArr) => {
+    try {
+      return newsArr.slice(0, 15).map(n => n.title).join('|');
+    } catch {
+      return '';
+    }
+  };
+
+  // Auto-generate AI macro summary when news changes, with a 20 min cooldown
+  useEffect(() => {
+    const allNews = [...stockNews, ...dutchMacroNews];
+    if (allNews.length === 0) return;
+    if (loadingMacroSummary) return;
+    const hash = computeMacroHash(allNews);
+    const now = Date.now();
+    const cooldownMs = 20 * 60 * 1000;
+    if (hash && (hash !== macroSummaryMeta.lastHash) && (now - macroSummaryMeta.lastGeneratedAt > cooldownMs)) {
+      (async () => {
+        setLoadingMacroSummary(true);
+        try {
+          const newsArticles = allNews.slice(0, 15).map(n => ({ title: n.title, link: n.link }));
+          const userKey = typeof localStorage !== 'undefined' ? localStorage.getItem('openai_api_key') : null;
+          const response = await axios.post('/api/ai-explain', {
+            type: 'macro_news',
+            ticker: 'MARKET',
+            data: newsArticles
+          }, userKey ? { headers: { 'x-openai-key': userKey } } : undefined);
+          setMacroNewsSummary(response.data.explanation);
+          setMacroSummaryMeta({ lastHash: hash, lastGeneratedAt: now });
+        } catch (error) {
+          const msg = error.response?.data?.error || error.message || 'Onbekende fout';
+          setMacroNewsSummary(`❌ Fout: ${msg}`);
+        } finally {
+          setLoadingMacroSummary(false);
+        }
+      })();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stockNews, dutchMacroNews]);
+
+  // Auto-generate AI portfolio (eigen) news summary: always runs when news is available
+  useEffect(() => {
+    const allNews = [...stockNews, ...dutchMacroNews];
+    if (allNews.length === 0) return;
+    if (loadingPortfolioSummary) return;
+    const myTickers = (investments || []).map(inv => inv.ticker_symbol).filter(Boolean);
+    const myNames = (investments || []).map(inv => inv.name).filter(Boolean);
+    if (myTickers.length === 0) return;
+    // Use all available news — AI will decide what's relevant per ticker
+    const hash = computeMacroHash(allNews) + myTickers.join(',');
+    const now = Date.now();
+    const cooldownMs = 20 * 60 * 1000;
+    if (hash && (hash !== portfolioSummaryMeta.lastHash) && (now - portfolioSummaryMeta.lastGeneratedAt > cooldownMs)) {
+      (async () => {
+        setLoadingPortfolioSummary(true);
+        try {
+          const newsArticles = allNews.slice(0, 15).map(n => ({ title: n.title, link: n.link }));
+          const userKey = typeof localStorage !== 'undefined' ? localStorage.getItem('openai_api_key') : null;
+          const response = await axios.post('/api/ai-explain', {
+            type: 'portfolio_news',
+            ticker: 'PORTFOLIO',
+            data: { news: newsArticles, tickers: myTickers, names: myNames }
+          }, userKey ? { headers: { 'x-openai-key': userKey } } : undefined);
+          setPortfolioNewsSummary(response.data.explanation);
+          setPortfolioSummaryMeta({ lastHash: hash, lastGeneratedAt: now });
+        } catch (error) {
+          console.error('Portfolio summary error:', error);
+        } finally {
+          setLoadingPortfolioSummary(false);
+        }
+      })();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stockNews, dutchMacroNews, investments]);
 
   // Fetch screener data for watchlist items (includes analyst data + technical indicators)
   useEffect(() => {
     const fetchWatchlistData = async () => {
       if (myWatchlist.length === 0) return;
       
+      const tickers = myWatchlist.map(item => item.ticker);
+      console.log('🔍 Fetching watchlist data for:', tickers.join(', '));
+      
+      // Step 1: Fetch basic price data in parallel (fast, reliable — has ticker variant fallbacks)
+      const basicData = {};
+      await Promise.allSettled(tickers.map(async (ticker) => {
+        try {
+          const res = await axios.get(`/api/stock-price`, {
+            params: { ticker, range: '6mo', interval: '1d' }
+          });
+          const d = res.data;
+          basicData[ticker] = {
+            currentPrice: d.current,
+            dailyChange: d.changePercent,
+            growth1mo: d.growthData?.growth1mo || 0,
+            growth6mo: d.growthData?.growth6mo || 0,
+            growth1yr: d.growthData?.growth1yr || 0,
+            sparkline: d.sparklineData || [],
+            currency: d.currency || 'USD',
+            rsi: d.technicals?.rsi || null,
+            sma50: d.technicals?.sma50 || null,
+            sma200: d.technicals?.sma200 || null,
+            currentVolume: d.volume?.current || 0,
+            avgVolume20d: d.volume?.average20d || 0,
+            sector: d.sector || '',
+            description: d.description || '',
+          };
+        } catch (e) {
+          console.warn(`⚠️ Basic price fetch failed for ${ticker}:`, e.message);
+        }
+      }));
+      
+      if (Object.keys(basicData).length > 0) {
+        setScreenerData(prev => ({ ...prev, ...basicData }));
+      }
+      
+      // Step 2: Enrich with full screener data (advanced technicals, quality score, etc.)
       try {
-        const tickers = myWatchlist.map(item => item.ticker).join(',');
-        console.log('🔍 Fetching screener data for watchlist:', tickers);
-        
         const response = await axios.get(`/api/screener`, {
-          params: {
-            tickers: tickers,
-            minScore: 0,
-            maxResults: 50
-          }
+          params: { tickers: tickers.join(','), minScore: 0, maxResults: 50 }
         });
         
         const { results } = response.data;
-        console.log('📊 Watchlist screener results:', results.length, 'stocks');
-        
-        // Map to screenerData format with ALL data (price, analyst, technical)
-        const newData = {};
-        results.forEach(stock => {
-          console.log(`✅ Watchlist ${stock.ticker}:`, {
-            price: stock.currentPrice,
-            recommendation: stock.recommendation,
-            hasAnalyst: !!stock.recommendation
+        if (results && results.length > 0) {
+          const enriched = {};
+          results.forEach(stock => {
+            enriched[stock.ticker] = {
+              currentPrice: stock.currentPrice,
+              dailyChange: stock.dailyChange,
+              growth6mo: stock.growth6mo,
+              growth1mo: stock.growth1mo,
+              growth1yr: stock.growth1yr,
+              sparkline: stock.sparkline || [],
+              currency: stock.currency,
+              recommendation: stock.recommendation || null,
+              targetPrice: stock.targetPrice || null,
+              rsi: stock.rsi,
+              macd: stock.macd || null,
+              sma50: stock.sma50,
+              sma200: stock.sma200,
+              ema20: stock.ema20,
+              ema50: stock.ema50,
+              emaTrendUp: stock.emaTrendUp,
+              bb: stock.bb || null,
+              adx: stock.adx,
+              adxDirection: stock.adxDirection,
+              stochRsi: stock.stochRsi,
+              atr: stock.atr,
+              near52wHigh: stock.near52wHigh,
+              near52wLow: stock.near52wLow,
+              obvUp: stock.obvUp,
+              sma50SlopePositive: stock.sma50SlopePositive,
+              mfi: stock.mfi,
+              signal: {
+                overall: stock.signal,
+                score: stock.signalScore,
+                reasons: stock.signalReasons
+              },
+              currentVolume: stock.currentVolume,
+              avgVolume20d: stock.avgVolume20d,
+              volumeRatio: stock.volumeRatio,
+              marketCap: stock.marketCap,
+              qualityScore: stock.qualityScore,
+              opportunityType: stock.opportunityType,
+              maxDrawdown30d: stock.maxDrawdown30d,
+              volatility30d: stock.volatility30d,
+            };
           });
-          
-          newData[stock.ticker] = {
-            currentPrice: stock.currentPrice,
-            dailyChange: stock.dailyChange,
-            growth6mo: stock.growth6mo,
-            growth1mo: stock.growth1mo,
-            growth1yr: stock.growth1yr,
-            sparkline: stock.sparkline || [],
-            currency: stock.currency,
-            recommendation: stock.recommendation || null,
-            targetPrice: stock.targetPrice || null,
-            rsi: stock.rsi,
-            sma50: stock.sma50,
-            sma200: stock.sma200,
-            signal: {
-              overall: stock.signal,
-              score: stock.signalScore,
-              reasons: stock.signalReasons
-            },
-            volume: stock.currentVolume,
-            avgVolume: stock.avgVolume20d
-          };
-        });
-        
-        setScreenerData(prev => ({ ...prev, ...newData }));
+          setScreenerData(prev => ({ ...prev, ...enriched }));
+        }
       } catch (error) {
-        console.error('❌ Watchlist screener error:', error);
+        console.error('❌ Watchlist screener enrichment error:', error);
       }
       
-      // ALSO fetch dedicated FMP analyst data (more reliable for analyst bars)
-      const watchlistTickers = myWatchlist.map(item => item.ticker);
-      if (watchlistTickers.length > 0) {
-        fetchFMPAnalystData(watchlistTickers);
+      // Step 3: Fetch Yahoo analyst data
+      if (tickers.length > 0) {
+        fetchYahooAnalystData(tickers);
       }
     };
     
@@ -2194,10 +2602,78 @@ const BeleggenPage = () => {
     setLoadingAI(true);
     setSelectedStockForAI(stockData);
     setShowAIModal(true);
+    // Ensure we have recent news for this ticker
+    if (stockData?.ticker && !tickerNewsMap[stockData.ticker]) {
+      fetchNewsForTickers([stockData.ticker]);
+    }
     
     const result = await aiAnalyzer.analyzeStock(stockData);
     setAiAnalysis(result);
     setLoadingAI(false);
+  };
+
+  // Quick AI buy-check for a ticker — opens modal popup with results
+  const runAIBuyCheck = async (ticker) => {
+    if (!ticker) return;
+    setAiBuyModalTicker(ticker);
+    try {
+      setLoadingAiBuy(prev => ({ ...prev, [ticker]: true }));
+      // Always fetch fresh news for AI buy-check to ensure latest news
+      await fetchNewsForTickers([ticker], true);
+      const sd = screenerData[ticker] || {};
+      const news = (tickerNewsMap[ticker] || []).slice(0, 3).map(a => ({ title: a.title, link: a.link }));
+      const payload = {
+        type: 'buy_check',
+        ticker,
+        data: {
+          news,
+          qualityScore: sd.qualityScore,
+          technicals: {
+            rsi: sd.rsi,
+            macd: sd.macd,
+            sma50: sd.sma50,
+            sma200: sd.sma200,
+            currentPrice: sd.currentPrice,
+            emaTrendUp: sd.emaTrendUp,
+            adx: sd.adx,
+            stochRsi: sd.stochRsi,
+            atr: sd.atr,
+            near52wHigh: sd.near52wHigh,
+            near52wLow: sd.near52wLow,
+            obvUp: sd.obvUp,
+            mfi: sd.mfi,
+            signal: sd.signal?.overall || sd.signal,
+          },
+          performance: {
+            dailyChange: sd.dailyChange,
+            growth1mo: sd.growth1mo,
+            growth6mo: sd.growth6mo,
+            growth1yr: sd.growth1yr,
+          },
+          analyst: sd.recommendation ? {
+            mean: sd.recommendation.mean,
+            targetPrice: sd.targetPrice,
+          } : null,
+          risk: {
+            volatility30d: sd.volatility30d,
+            maxDrawdown30d: sd.maxDrawdown30d,
+          }
+        }
+      };
+      const userKey = typeof localStorage !== 'undefined' ? localStorage.getItem('openai_api_key') : null;
+      const response = await axios.post('/api/ai-explain', payload, userKey ? { headers: { 'x-openai-key': userKey } } : undefined);
+      let text = response.data?.explanation || '';
+      text = text.trim().replace(/^```json\n?/, '').replace(/\n?```$/, '');
+      let parsed = null;
+      try { parsed = JSON.parse(text); } catch (e) { parsed = null; }
+      if (parsed && typeof parsed.score === 'number') {
+        setAiBuyScores(prev => ({ ...prev, [ticker]: parsed }));
+      }
+    } catch (e) {
+      console.warn('AI buy-check failed:', e.message);
+    } finally {
+      setLoadingAiBuy(prev => ({ ...prev, [ticker]: false }));
+    }
   };
 
   // ===== AUTO-REFRESH STOCK PRICES =====
@@ -2295,19 +2771,27 @@ const BeleggenPage = () => {
           };
         }
         acc[inv.ticker_symbol].totalShares += (inv.shares || 0);
-        acc[inv.ticker_symbol].totalInvested += (inv.amount || 0);
+        const currency = inv.purchase_currency || 'EUR';
+        acc[inv.ticker_symbol].totalInvested += convertToEUR(inv.amount || 0, currency);
         return acc;
       }, {})
   );
 
-  const totalInvestment = investments.reduce((sum, inv) => sum + (inv.amount || 0), 0);
+  const totalInvestment = investments.reduce((sum, inv) => {
+    const currency = inv.purchase_currency || 'EUR';
+    const amountEUR = convertToEUR(inv.amount || 0, currency);
+    return sum + amountEUR;
+  }, 0);
 
   // Live portfolio value based on current stock prices
   const totalLiveValue = investments.reduce((sum, inv) => {
     if (inv.ticker_symbol && inv.shares && stockPrices[inv.ticker_symbol]) {
-      return sum + (inv.shares * stockPrices[inv.ticker_symbol].current);
+      const priceData = stockPrices[inv.ticker_symbol];
+      const currentPriceEUR = priceData.currency === 'EUR' ? priceData.current : convertToEUR(priceData.current, priceData.currency);
+      return sum + (inv.shares * currentPriceEUR);
     }
-    return sum + (inv.amount || 0);
+    const currency = inv.purchase_currency || 'EUR';
+    return sum + convertToEUR(inv.amount || 0, currency);
   }, 0);
 
   const totalProfitLoss = totalLiveValue - totalInvestment;
@@ -2321,6 +2805,80 @@ const BeleggenPage = () => {
           <h1 className="text-white text-3xl font-bold mb-2">Beleggen</h1>
           <p className="text-white/60">Track je aandelen en ETF investeringen</p>
         </div>
+
+        {/* AI Settings Panel */}
+        {showAISettings && (
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => setShowAISettings(false)}>
+            <div className="gradient-card rounded-2xl p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-white font-semibold text-lg flex items-center space-x-2">
+                  <Sparkles className="w-5 h-5 text-purple-400" />
+                  <span>AI Instellingen</span>
+                </h3>
+                <button onClick={() => setShowAISettings(false)} className="text-white/40 hover:text-white">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="text-white/80 text-sm font-medium mb-2 block">OpenAI API Key (GPT-4o-mini)</label>
+                  <input
+                    type="password"
+                    defaultValue={localStorage.getItem('openai_api_key') || ''}
+                    placeholder="sk-proj-..."
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-purple-500/50"
+                    onChange={(e) => {
+                      if (e.target.value.length > 20) {
+                        localStorage.setItem('openai_api_key', e.target.value);
+                      }
+                    }}
+                  />
+                  <p className="text-white/30 text-[10px] mt-1">Voor AI Uitleg bij analyst data (~$0.001 per uitleg)</p>
+                  {localStorage.getItem('openai_api_key') && (
+                    <div className="flex items-center space-x-1 mt-1">
+                      <div className="w-2 h-2 rounded-full bg-green-400" />
+                      <span className="text-green-400 text-[10px]">Key opgeslagen</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex space-x-2">
+                  <button
+                    onClick={() => {
+                      const input = document.querySelector('input[placeholder="sk-proj-..."]');
+                      if (input && input.value.length > 20) {
+                        localStorage.setItem('openai_api_key', input.value);
+                        setShowAISettings(false);
+                      }
+                    }}
+                    className="flex-1 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 text-purple-300 text-sm font-medium px-4 py-2 rounded-lg transition-all"
+                  >
+                    Opslaan
+                  </button>
+                  <button
+                    onClick={() => {
+                      localStorage.removeItem('openai_api_key');
+                      setShowAISettings(false);
+                    }}
+                    className="bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-300 text-sm font-medium px-4 py-2 rounded-lg transition-all"
+                  >
+                    Verwijder
+                  </button>
+                </div>
+
+                <div className="bg-purple-500/10 border border-purple-500/20 rounded-lg p-3">
+                  <p className="text-purple-300 text-[11px] leading-relaxed">
+                    <strong>Hoe het werkt:</strong> Voer je OpenAI API key in en klik op "🤖 AI Uitleg" bij analyst data om een AI-gegenereerde uitleg te krijgen in het Nederlands.
+                  </p>
+                  <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="text-purple-400 text-[11px] underline mt-1 block">
+                    OpenAI API key aanmaken →
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         <div className="flex items-center space-x-2 flex-wrap gap-y-2">
           {/* Notifications Badge */}
           {notifications.length > 0 && (
@@ -2356,6 +2914,15 @@ const BeleggenPage = () => {
             <Calendar className="w-5 h-5" />
           </button>
           
+          {/* AI Settings */}
+          <button
+            onClick={() => setShowAISettings(!showAISettings)}
+            className="glass-effect px-3 py-2 rounded-lg text-white hover:bg-white/20 transition-colors"
+            title="AI Instellingen"
+          >
+            <Sparkles className="w-5 h-5" />
+          </button>
+
           {/* Export Menu */}
           <div className="relative group">
             <button className="glass-effect px-3 py-2 rounded-lg text-white hover:bg-white/20 transition-colors">
@@ -2424,7 +2991,7 @@ const BeleggenPage = () => {
                 {totalProfitLoss >= 0 ? '+' : ''}€{totalProfitLoss.toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </h2>
               <p className={`text-xs mt-1 font-medium ${totalProfitLoss >= 0 ? 'text-green-400/70' : 'text-red-400/70'}`}>
-                {totalProfitLoss >= 0 ? '+' : ''}{totalProfitLossPercent.toFixed(2)}%
+                {typeof totalProfitLossPercent === 'number' ? (totalProfitLoss >= 0 ? '+' : '') + totalProfitLossPercent.toFixed(2) + '%' : '---'}
               </p>
             </div>
           )}
@@ -2449,13 +3016,14 @@ const BeleggenPage = () => {
                         <div key={type} className="flex items-center justify-between text-[10px]">
                           <span className="text-white/50 capitalize">{type}</span>
                           <div className="flex items-center space-x-1.5">
-                            <span className="text-white/40">€{(value / 1000).toFixed(1)}k</span>
-                            <span className="text-white font-medium min-w-[35px] text-right">{percentage.toFixed(0)}%</span>
+                            <span className="text-white/40">€{typeof value === 'number' ? (value / 1000).toFixed(1) : '---'}k</span>
+                            <span className="text-white font-medium min-w-[35px] text-right">{typeof percentage === 'number' ? percentage.toFixed(0) : '---'}%</span>
                           </div>
                         </div>
                       );
                     });
                 })()}
+
               </div>
             </div>
           )}
@@ -2511,12 +3079,12 @@ const BeleggenPage = () => {
                                 key={type}
                                 className={`${colors[type] || 'bg-gray-500'} transition-all`}
                                 style={{ width: `${percentage}%` }}
-                                title={`${type}: ${percentage.toFixed(1)}%`}
+                                title={`${type}: ${typeof percentage === 'number' ? percentage.toFixed(1) : '---'}%`}
                               />
                             );
                           })}
                       </div>
-                      
+
                       {/* Legend */}
                       <div className="space-y-1.5">
                         {Object.entries(typeDistribution)
@@ -2530,8 +3098,8 @@ const BeleggenPage = () => {
                                   <span className="text-white/60 capitalize">{type}</span>
                                 </div>
                                 <div className="flex items-center space-x-2">
-                                  <span className="text-white/40">€{(value / 1000).toFixed(1)}k</span>
-                                  <span className="text-white font-medium min-w-[45px] text-right">{percentage.toFixed(1)}%</span>
+                                  <span className="text-white/40">€{typeof value === 'number' ? (value / 1000).toFixed(1) : '---'}k</span>
+                                  <span className="text-white font-medium min-w-[45px] text-right">{typeof percentage === 'number' ? percentage.toFixed(1) : '---'}%</span>
                                 </div>
                               </div>
                             );
@@ -2600,12 +3168,12 @@ const BeleggenPage = () => {
                               key={sector}
                               className={`${sectorColors[index % sectorColors.length]} transition-all`}
                               style={{ width: `${percentage}%` }}
-                              title={`${sector}: ${percentage.toFixed(1)}%`}
+                              title={`${sector}: ${typeof percentage === 'number' ? percentage.toFixed(1) : '---'}%`}
                             />
                           );
                         })}
                       </div>
-                      
+
                       {/* Legend */}
                       <div className="space-y-1.5">
                         {topSectors.map(([sector, value], index) => {
@@ -2617,8 +3185,8 @@ const BeleggenPage = () => {
                                 <span className="text-white/60 truncate" title={sector}>{sector}</span>
                               </div>
                               <div className="flex items-center space-x-2 flex-shrink-0 ml-2">
-                                <span className="text-white/40">€{(value / 1000).toFixed(1)}k</span>
-                                <span className="text-white font-medium min-w-[45px] text-right">{percentage.toFixed(1)}%</span>
+                                <span className="text-white/40">€{typeof value === 'number' ? (value / 1000).toFixed(1) : '---'}k</span>
+                                <span className="text-white font-medium min-w-[45px] text-right">{typeof percentage === 'number' ? percentage.toFixed(1) : '---'}%</span>
                               </div>
                             </div>
                           );
@@ -2649,8 +3217,8 @@ const BeleggenPage = () => {
                 {/* Return on Investment */}
                 <div className="glass-effect rounded-lg p-3">
                   <p className="text-white/40 text-[10px] uppercase mb-1">ROI</p>
-                  <p className={`text-lg font-bold ${totalProfitLossPercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                    {totalProfitLossPercent >= 0 ? '+' : ''}{totalProfitLossPercent.toFixed(2)}%
+                  <p className={`text-lg font-bold ${typeof totalProfitLossPercent === 'number' && totalProfitLossPercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    {typeof totalProfitLossPercent === 'number' ? (totalProfitLossPercent >= 0 ? '+' : '') + totalProfitLossPercent.toFixed(2) + '%' : '---'}
                   </p>
                   <p className="text-white/30 text-[9px] mt-0.5">Return on Investment</p>
                 </div>
@@ -2669,7 +3237,7 @@ const BeleggenPage = () => {
                   return best ? (
                     <div className="glass-effect rounded-lg p-3">
                       <p className="text-white/40 text-[10px] uppercase mb-1">Beste</p>
-                      <p className="text-green-400 text-lg font-bold">+{best.percentage.toFixed(1)}%</p>
+                      <p className="text-green-400 text-lg font-bold">+{typeof best.percentage === 'number' ? best.percentage.toFixed(1) : '---'}%</p>
                       <p className="text-white/30 text-[9px] mt-0.5 truncate">{best.name}</p>
                     </div>
                   ) : null;
@@ -2689,7 +3257,7 @@ const BeleggenPage = () => {
                   return worst ? (
                     <div className="glass-effect rounded-lg p-3">
                       <p className="text-white/40 text-[10px] uppercase mb-1">Slechtste</p>
-                      <p className="text-red-400 text-lg font-bold">{worst.percentage.toFixed(1)}%</p>
+                      <p className="text-red-400 text-lg font-bold">{typeof worst.percentage === 'number' ? worst.percentage.toFixed(1) : '---'}%</p>
                       <p className="text-white/30 text-[9px] mt-0.5 truncate">{worst.name}</p>
                     </div>
                   ) : null;
@@ -2908,14 +3476,52 @@ const BeleggenPage = () => {
                             </span>
                           );
                         })()}
-                        {investment.sector && (
+                        {aiBuyScores[investment.ticker_symbol]?.score != null && (
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold inline-flex items-center gap-1 ${
+                            aiBuyScores[investment.ticker_symbol].verdict === 'kopen' ? 'bg-green-500/20 text-green-400' :
+                            aiBuyScores[investment.ticker_symbol].verdict === 'verkopen' ? 'bg-red-500/20 text-red-400' :
+                            'bg-yellow-500/10 text-yellow-300'
+                          }`}>
+                            <Sparkles className="w-3 h-3" /> {Math.round(aiBuyScores[investment.ticker_symbol].score)}
+                          </span>
+                        )}
+                        {(investment.sector || screenerData[investment.ticker_symbol]?.sector) && (
                           <span className="text-xs bg-blue-500/20 px-2 py-0.5 rounded text-blue-300">
-                            {investment.sector}
+                            {investment.sector || screenerData[investment.ticker_symbol]?.sector}
                           </span>
                         )}
                       </div>
                     </div>
                   </div>
+                  {/* AI Koop Analyse Button */}
+                  {investment.ticker_symbol && (
+                    <button
+                      onClick={() => runAIBuyCheck(investment.ticker_symbol)}
+                      disabled={loadingAiBuy[investment.ticker_symbol]}
+                      className={`w-full bg-gradient-to-r from-purple-500/20 to-blue-500/20 hover:from-purple-500/30 hover:to-blue-500/30 border border-purple-500/30 text-purple-300 text-xs font-medium px-3 py-2 rounded-lg flex items-center justify-center space-x-2 transition-all mb-4 ${
+                        aiBuyScores[investment.ticker_symbol]?.verdict === 'kopen' ? 'from-green-500/20 to-emerald-500/20 border-green-500/30 text-green-400' :
+                        aiBuyScores[investment.ticker_symbol]?.verdict === 'verkopen' ? 'from-red-500/20 to-orange-500/20 border-red-500/30 text-red-400' : ''
+                      }`}
+                      title="AI Koop Analyse"
+                    >
+                      {loadingAiBuy[investment.ticker_symbol] ? (
+                        <>
+                          <Activity className="w-4 h-4 animate-pulse" />
+                          <span>Laden...</span>
+                        </>
+                      ) : aiBuyScores[investment.ticker_symbol]?.score != null ? (
+                        <>
+                          <Sparkles className="w-4 h-4" />
+                          <span>AI Koop Analyse: {Math.round(aiBuyScores[investment.ticker_symbol].score)}</span>
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-4 h-4" />
+                          <span>AI Koop Analyse</span>
+                        </>
+                      )}
+                    </button>
+                  )}
                   <div className="flex space-x-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
                     {investment.ticker_symbol && (
                       <a
@@ -2924,7 +3530,7 @@ const BeleggenPage = () => {
                           if (investment.yahoo_finance_link) {
                             return investment.yahoo_finance_link;
                           }
-                          
+
                           // Auto-convert ticker to Yahoo Finance format
                           let ticker = investment.ticker_symbol;
                           const exchangeMap = {
@@ -2941,14 +3547,14 @@ const BeleggenPage = () => {
                             ':XHEL': '.HE',
                             ':XOSL': '.OL',
                           };
-                          
+
                           for (const [exchange, suffix] of Object.entries(exchangeMap)) {
                             if (ticker.includes(exchange)) {
                               ticker = ticker.replace(exchange, suffix);
                               break;
                             }
                           }
-                          
+
                           return `https://finance.yahoo.com/quote/${encodeURIComponent(ticker)}`;
                         })()}
                         target="_blank"
@@ -3004,17 +3610,66 @@ const BeleggenPage = () => {
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-white text-2xl font-bold">
-                        {stockPrice.currency === 'EUR' ? '€' : '$'}{stockPrice.current.toFixed(2)}
+                        {getCurrencySymbol(stockPrice.currency)}{typeof stockPrice.current === 'number' ? stockPrice.current.toFixed(2) : '---'}
                       </span>
-                      <div className={`flex items-center space-x-1 ${stockPrice.change >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        {stockPrice.change >= 0 ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+                      <div className={`flex items-center space-x-1 ${typeof stockPrice.change === 'number' && stockPrice.change >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        {typeof stockPrice.change === 'number' && stockPrice.change >= 0 ? <TrendingUp className="w-4 h-4" /> : typeof stockPrice.change === 'number' && stockPrice.change < 0 ? <TrendingDown className="w-4 h-4" /> : null}
                         <span className="text-sm font-semibold">
-                          {stockPrice.change >= 0 ? '+' : ''}{stockPrice.change.toFixed(2)} ({stockPrice.changePercent.toFixed(2)}%)
+                          {typeof stockPrice.change === 'number' && typeof stockPrice.changePercent === 'number' ? (stockPrice.change >= 0 ? '+' : '') + stockPrice.change.toFixed(2) + ' (' + stockPrice.changePercent.toFixed(2) + '%)' : '---'}
                         </span>
                       </div>
                     </div>
                   </div>
                 )}
+
+                {/* Technical Indicators (RSI, MA, Vol) */}
+                {(() => {
+                  const sd = screenerData[investment.ticker_symbol];
+                  if (!sd || !sd.rsi) return null;
+                  return (
+                    <div className="mb-3 pb-3 border-b border-white/5">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-white/40 text-[10px]">Technische Indicatoren</span>
+                        {sd.signal && (
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                            sd.signal.overall === 'STRONG BUY' ? 'bg-green-500/20 text-green-400' :
+                            sd.signal.overall === 'BUY' ? 'bg-green-500/10 text-green-300' :
+                            sd.signal.overall === 'STRONG SELL' ? 'bg-red-500/20 text-red-400' :
+                            sd.signal.overall === 'SELL' ? 'bg-red-500/10 text-red-300' :
+                            'bg-yellow-500/10 text-yellow-300'
+                          }`}>
+                            {sd.signal.overall}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                        <div className={`text-[10px] px-2 py-0.5 rounded ${
+                          typeof sd.rsi === 'number' && sd.rsi < 30 ? 'bg-green-500/20 text-green-400' :
+                          typeof sd.rsi === 'number' && sd.rsi > 70 ? 'bg-red-500/20 text-red-400' :
+                          'bg-blue-500/10 text-blue-300'
+                        }`}>
+                          RSI: {typeof sd.rsi === 'number' ? sd.rsi.toFixed(0) : '---'}
+                        </div>
+                        {sd.sma50 && sd.sma200 && (
+                          <div className={`text-[10px] px-2 py-0.5 rounded ${
+                            sd.currentPrice > sd.sma50 && sd.sma50 > sd.sma200 ? 'bg-green-500/20 text-green-400' :
+                            sd.currentPrice < sd.sma50 && sd.sma50 < sd.sma200 ? 'bg-red-500/20 text-red-400' :
+                            'bg-yellow-500/10 text-yellow-300'
+                          }`}>
+                            MA: {sd.currentPrice > sd.sma50 ? 'Boven 50d' : 'Onder 50d'}
+                          </div>
+                        )}
+                        {sd.volume && sd.avgVolume && (
+                          <div className={`text-[10px] px-2 py-0.5 rounded ${
+                            sd.volume > sd.avgVolume * 1.5 ? 'bg-purple-500/20 text-purple-300' : 'bg-white/5 text-white/40'
+                          }`}>
+                            Vol: {sd.volume > sd.avgVolume * 1.5 ? 'Hoog' : 'Normaal'}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Analyst Meter (Analyst + Momentum) - or ETF Holdings */}
                 <AnalystMeter 
@@ -3031,13 +3686,13 @@ const BeleggenPage = () => {
                   {investment.shares && (
                     <div className="flex justify-between text-sm">
                       <span className="text-white/60">Aandelen</span>
-                      <span className="text-white">{investment.shares % 1 === 0 ? investment.shares : investment.shares.toFixed(4)}</span>
+                      <span className="text-white">{typeof investment.shares === 'number' && investment.shares % 1 === 0 ? investment.shares : typeof investment.shares === 'number' ? investment.shares.toFixed(4) : '---'}</span>
                     </div>
                   )}
                   {investment.purchase_price && (
                     <div className="flex justify-between text-sm">
                       <span className="text-white/60">Aankoopprijs</span>
-                      <span className="text-white">€{parseFloat(investment.purchase_price) % 1 === 0 ? parseFloat(investment.purchase_price) : parseFloat(investment.purchase_price).toFixed(2)}</span>
+                      <span className="text-white">{(() => { const pp = parseFloat(investment.purchase_price); return !isNaN(pp) ? (pp % 1 === 0 ? pp : pp.toFixed(2)) : '---'; })()}</span>
                     </div>
                   )}
                   {investment.shares && investment.purchase_price && (
@@ -3054,7 +3709,7 @@ const BeleggenPage = () => {
                       </span>
                       {stockPrice && investment.shares && investment.purchase_price && (
                         <span className={`text-xs font-semibold ${profitLoss.amount >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                          {profitLoss.amount >= 0 ? '+' : ''}{profitLoss.percentage.toFixed(2)}%
+                          {typeof profitLoss.percentage === 'number' ? (profitLoss.amount >= 0 ? '+' : '') + profitLoss.percentage.toFixed(2) + '%' : '---'}
                         </span>
                       )}
                     </div>
@@ -3071,13 +3726,13 @@ const BeleggenPage = () => {
                       </div>
                     </div>
                   ) : (
-                    <div className={`p-3 rounded-lg ${profitLoss.amount >= 0 ? 'bg-green-500/10' : 'bg-red-500/10'}`}>
+                    <div className={`p-3 rounded-lg ${typeof profitLoss.amount === 'number' && profitLoss.amount >= 0 ? 'bg-green-500/10' : 'bg-red-500/10'}`}>
                       <div className="flex items-center justify-between">
                         <span className="text-white/60 text-sm">Winst/Verlies (live)</span>
-                        <div className={`flex items-center space-x-1 ${profitLoss.amount >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                          {profitLoss.amount >= 0 ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+                        <div className={`flex items-center space-x-1 ${typeof profitLoss.amount === 'number' && profitLoss.amount >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          {typeof profitLoss.amount === 'number' && profitLoss.amount >= 0 ? <TrendingUp className="w-4 h-4" /> : typeof profitLoss.amount === 'number' && profitLoss.amount < 0 ? <TrendingDown className="w-4 h-4" /> : null}
                           <span className="font-semibold">
-                            {profitLoss.amount >= 0 ? '+' : ''}€{Math.abs(profitLoss.amount).toFixed(2)} ({profitLoss.percentage.toFixed(2)}%)
+                            {typeof profitLoss.amount === 'number' && typeof profitLoss.percentage === 'number' ? (profitLoss.amount >= 0 ? '+' : '') + '€' + Math.abs(profitLoss.amount).toFixed(2) + ' (' + profitLoss.percentage.toFixed(2) + '%)' : '---'}
                           </span>
                         </div>
                       </div>
@@ -3154,18 +3809,138 @@ const BeleggenPage = () => {
                 </div>
               )}
               {news.length > 0 && (
-                <div className="space-y-3">
-                  {news.map((n, i) => (
-                    <a key={i} href={n.link} target="_blank" rel="noopener noreferrer" className="block hover:bg-white/5 rounded-lg p-3 -mx-1 transition-colors border border-white/5">
-                      <p className="text-white text-sm font-medium hover:text-cyan-300 leading-snug">{n.title}</p>
-                      <div className="flex items-center space-x-2 mt-1.5">
-                        <span className="text-white/40 text-xs">{n.publisher}</span>
-                        {n.publishedAt && <span className="text-white/30 text-xs">{n.publishedAt.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })}</span>}
-                        <ExternalLink className="w-3 h-3 text-white/20" />
+                <>
+                  {/* AI News Summary - Auto-generated */}
+                  {loadingNewsSummary[inv.id] ? (
+                    <div className="bg-purple-500/10 border border-purple-500/20 rounded-lg p-3 mb-3">
+                      <div className="flex items-center space-x-2">
+                        <div className="w-3 h-3 border-2 border-purple-300/30 border-t-purple-300 rounded-full animate-spin" />
+                        <span className="text-purple-300 text-xs">AI analyseert nieuws...</span>
                       </div>
-                    </a>
-                  ))}
-                </div>
+                    </div>
+                  ) : null}
+
+                  {newsSummary[inv.id] && (() => {
+                    let parsed = null;
+                    try {
+                      const raw = newsSummary[inv.id].trim().replace(/^```json\n?/, '').replace(/\n?```$/, '');
+                      parsed = JSON.parse(raw);
+                    } catch (e) { /* not JSON, render plain */ }
+
+                    const sentimentConfig = {
+                      bullish:  { label: 'Bullish',  color: 'text-emerald-400', bg: 'bg-emerald-400/10', border: 'border-emerald-400/20', dot: 'bg-emerald-400', accent: 'border-l-emerald-400' },
+                      bearish:  { label: 'Bearish',  color: 'text-red-400',     bg: 'bg-red-400/10',     border: 'border-red-400/20',     dot: 'bg-red-400',     accent: 'border-l-red-400' },
+                      neutraal: { label: 'Neutraal', color: 'text-amber-400',   bg: 'bg-amber-400/10',   border: 'border-amber-400/20',   dot: 'bg-amber-400',   accent: 'border-l-amber-400' },
+                    };
+
+                    if (parsed && parsed.items) {
+                      const overall = sentimentConfig[parsed.sentiment] || sentimentConfig.neutraal;
+                      return (
+                        <div className="bg-purple-500/10 border border-purple-500/20 rounded-lg p-3 mb-3 space-y-3">
+                          {/* Header */}
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-2">
+                              <span className="text-lg">🤖</span>
+                              <span className="text-white font-semibold text-sm">AI Nieuws Analyse</span>
+                            </div>
+                            <div className="flex items-center space-x-1.5">
+                              <div className={`w-2 h-2 rounded-full ${overall.dot}`} />
+                              <span className={`text-[10px] font-medium ${overall.color}`}>{overall.label}</span>
+                            </div>
+                          </div>
+                          {parsed.intro && <p className="text-white/70 text-xs leading-relaxed">{parsed.intro}</p>}
+
+                          {/* Items */}
+                          <div className="space-y-2">
+                            {parsed.items.map((item, idx) => {
+                              const s = sentimentConfig[item.sentiment] || sentimentConfig.neutraal;
+                              return (
+                                <div key={idx}>
+                                  <div className="border-l-2 pl-2 border-l-white/10 hover:border-l-white/20 transition-colors">
+                                    <div className="flex items-start justify-between gap-2 mb-0.5">
+                                      <div className="flex items-center space-x-1.5">
+                                        <span className={`text-[10px] font-bold ${s.color} opacity-60`}>{idx + 1}.</span>
+                                        <span className="text-white font-medium text-xs">{item.title}</span>
+                                      </div>
+                                      <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${s.bg} ${s.color}`}>{s.label}</span>
+                                    </div>
+                                    <p className="text-white/60 text-[11px] leading-relaxed ml-3">{item.body}</p>
+                                    {item.link && (
+                                      <a
+                                        href={item.link}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center space-x-1 ml-3 mt-1 text-[9px] text-cyan-400/60 hover:text-cyan-400 transition-colors"
+                                      >
+                                        <ExternalLink className="w-2 h-2" />
+                                        <span>Bekijk origineel</span>
+                                      </a>
+                                    )}
+                                  </div>
+                                  {idx < parsed.items.length - 1 && <hr className="border-white/5 my-2" />}
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {/* Conclusie */}
+                          {parsed.conclusie && (
+                            <p className="text-white/50 text-[11px] leading-relaxed border-t border-white/10 pt-2">
+                              <span className="text-white/30 font-semibold uppercase text-[9px] mr-1">Conclusie</span>
+                              {parsed.conclusie}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    }
+
+                    // Fallback: plain text render
+                    return (
+                      <div className="bg-purple-500/10 border border-purple-500/20 rounded-lg p-3 mb-3">
+                        <div className="flex items-start space-x-2">
+                          <span className="text-lg">🤖</span>
+                          <div className="text-xs text-white/80 leading-relaxed space-y-1 flex-1">
+                            {newsSummary[inv.id].split('\n').map((line, idx) => {
+                              const formattedLine = line.replace(/\*\*(.*?)\*\*/g, '<strong class="text-white font-semibold">$1</strong>');
+                              if (line.trim().startsWith('•') || line.trim().startsWith('-')) {
+                                return <div key={idx} className="flex items-start space-x-1" dangerouslySetInnerHTML={{ __html: formattedLine }} />;
+                              }
+                              if (line.trim().startsWith('Conclusie:')) {
+                                return <div key={idx} className="font-semibold text-white mt-2" dangerouslySetInnerHTML={{ __html: formattedLine }} />;
+                              }
+                              return line.trim() ? <div key={idx} dangerouslySetInnerHTML={{ __html: formattedLine }} /> : <div key={idx} className="h-0.5" />;
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  <div className="space-y-3">
+                    {news.map((n, i) => {
+                      const isYahoo = n.publisher?.toLowerCase().includes('yahoo') || n.link?.includes('yahoo');
+                      const isBeursduivel = n.publisher?.toLowerCase().includes('beursduivel') || n.link?.includes('beursduivel');
+                      return (
+                        <a key={i} href={n.link} target="_blank" rel="noopener noreferrer" className="block hover:bg-white/5 rounded-lg p-3 -mx-1 transition-colors border border-white/5">
+                          <div className="flex items-start justify-between gap-2 mb-1">
+                            <p className="text-white text-sm font-medium hover:text-cyan-300 leading-snug flex-1">{n.title}</p>
+                            <div className="flex items-center gap-1 flex-shrink-0">
+                              {inv.ticker_symbol && <span className="text-[10px] bg-cyan-400/10 text-cyan-400 px-1.5 py-0.5 rounded font-mono">{inv.ticker_symbol}</span>}
+                              {isYahoo && <span className="text-[10px] bg-purple-500/10 text-purple-400 px-1.5 py-0.5 rounded font-medium">Yahoo</span>}
+                              {isBeursduivel && <span className="text-[10px] bg-orange-500/10 text-orange-400 px-1.5 py-0.5 rounded font-medium">Beursduivel</span>}
+                            </div>
+                          </div>
+                          <div className="flex items-center space-x-2 mt-1.5">
+                            <span className="text-white/40 text-xs">{n.publisher}</span>
+                            {n.source && <span className="text-[10px] text-cyan-400/60 bg-cyan-400/10 px-1.5 py-0.5 rounded">{n.source}</span>}
+                            {n.publishedAt && <span className="text-white/30 text-xs">{n.publishedAt.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })}</span>}
+                            <ExternalLink className="w-3 h-3 text-white/20" />
+                          </div>
+                        </a>
+                      );
+                    })}
+                  </div>
+                </>
               )}
               {!loading && news.length === 0 && (
                 <p className="text-white/40 text-sm text-center py-4">Geen nieuws gevonden voor {inv.name}</p>
@@ -3201,12 +3976,11 @@ const BeleggenPage = () => {
               const price = stockPrices[symbol];
               if (!price) return null;
               const isPositive = price.change >= 0;
-              const currencySymbol = price.currency === 'EUR' ? '€' : '$';
+              const currencySymbol = getCurrencySymbol(price.currency);
               const liveValue = totalShares * price.current;
               const profitLoss = liveValue - totalInvested;
               const profitLossPercent = totalInvested > 0 ? (profitLoss / totalInvested) * 100 : 0;
               const plPositive = profitLoss >= 0;
-              
               const marketOpen = isMarketOpen(price.currency);
               return (
                 <div key={symbol} className="glass-effect rounded-lg p-2.5 hover:bg-white/5 transition-colors">
@@ -3238,7 +4012,7 @@ const BeleggenPage = () => {
                         {currencySymbol}{price.current.toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </span>
                       <span className={`text-[10px] font-medium ${isPositive ? 'text-green-400' : 'text-red-400'}`}>
-                        {isPositive ? '+' : ''}{price.changePercent.toFixed(1)}%
+                        {typeof price.changePercent === 'number' ? (isPositive ? '+' : '') + price.changePercent.toFixed(1) + '%' : '---'}
                       </span>
                     </div>
                     {totalInvested > 0 && (
@@ -3247,7 +4021,7 @@ const BeleggenPage = () => {
                           {plPositive ? '+' : ''}€{Math.abs(profitLoss).toLocaleString('nl-NL', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                         </span>
                         <span className={`text-[10px] block ${plPositive ? 'text-green-400/70' : 'text-red-400/70'}`}>
-                          {plPositive ? '+' : ''}{profitLossPercent.toFixed(1)}%
+                          {typeof profitLossPercent === 'number' ? (plPositive ? '+' : '') + profitLossPercent.toFixed(1) + '%' : '---'}
                         </span>
                       </div>
                     )}
@@ -3266,9 +4040,10 @@ const BeleggenPage = () => {
             <div>
               <h2 className="text-white text-xl font-semibold flex items-center space-x-2">
                 <Newspaper className="w-5 h-5" />
-                <span>Nieuws over mijn aandelen</span>
+                <span>Nieuws</span>
+                {stockNews.length > 0 && <span className="text-xs bg-blue-500/10 text-blue-400/70 px-2 py-0.5 rounded-full font-normal">{stockNews.length}</span>}
               </h2>
-              <p className="text-white/60 text-sm">Laatste nieuws over jouw portfolio</p>
+              <p className="text-white/60 text-sm">Laatste nieuws over jouw portfolio en macro-economie</p>
             </div>
             <button
               onClick={fetchStockNews}
@@ -3312,15 +4087,401 @@ const BeleggenPage = () => {
                       {article.publishedAt && (
                         <div className="flex items-center space-x-1 mt-1">
                           <Clock className="w-3 h-3 text-white/30" />
-                          <span className="text-white/30 text-xs">
-                            {article.publishedAt.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })} {article.publishedAt.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}
-                          </span>
+                          <span className="text-white/30 text-xs">{timeAgo(article.publishedAt)}</span>
                         </div>
                       )}
                     </div>
                   </div>
                 </a>
               ))}
+            </div>
+          )}
+
+          {/* Dutch Financial News from Beursduivel.be */}
+          {dutchMacroNews.length > 0 && (
+            <div className="mt-6">
+              <div className="flex items-center space-x-2 mb-3">
+                <FileText className="w-4 h-4 text-orange-400" />
+                <h3 className="text-white font-semibold text-sm">Beursduivel</h3>
+                <span className="text-[10px] bg-orange-400/10 text-orange-400/70 px-1.5 py-0.5 rounded-full">{dutchMacroNews.length}</span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                {dutchMacroNews.slice(0, 9).map((article, idx) => {
+                  const title = article.title || '';
+                  const link = article.link || '';
+                  const explicit = extractTicker(title, link);
+                  const titleLower = title.toLowerCase();
+                  const fromInvestments = (investments || [])
+                    .filter(inv => inv && (titleLower.includes(String(inv.name || '').toLowerCase()) || title.includes(inv.ticker_symbol || '')))
+                    .map(inv => inv.ticker_symbol)
+                    .filter(Boolean);
+                  const tickers = Array.from(new Set([explicit, ...fromInvestments].filter(Boolean))).slice(0,3);
+                  return (
+                    <div key={idx} className="glass-effect rounded-lg p-2.5 hover:bg-white/10 transition-all group">
+                      <div className="flex items-start justify-between gap-2">
+                        <a
+                          href={article.link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex-1 min-w-0"
+                        >
+                          <h4 className="text-white text-xs font-medium line-clamp-2 group-hover:text-orange-300 transition-colors">{article.title}</h4>
+                        </a>
+                        {tickers.length > 0 && (
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            {tickers.map(t => (
+                              <a
+                                key={t}
+                                href={getYahooUrl(t)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[10px] bg-cyan-400/10 text-cyan-400 px-1.5 py-0.5 rounded font-mono hover:bg-cyan-400/20"
+                                title={`Open ${t} op Yahoo Finance`}
+                              >
+                                {t}
+                              </a>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center space-x-2 mt-1">
+                        <span className="text-[10px] text-orange-400/60 bg-orange-400/10 px-1.5 py-0.5 rounded">{article.source}</span>
+                        {article.publishedAt && (
+                          <span className="text-white/30 text-[10px]">{timeAgo(article.publishedAt)}</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              
+              {/* Market Barometer + AI Macro News Summary */}
+              <div className="mt-4 pt-4 border-t border-white/10">
+                <p className="text-white/30 text-[10px] font-semibold uppercase tracking-widest mb-2">Globaal nieuws</p>
+                {/* Market Barometer trigger */}
+                <div className="flex items-center gap-2 mb-2">
+                  <button
+                    onClick={async () => {
+                      if (marketBarometer) { setMarketBarometer(null); return; }
+                      setLoadingBarometer(true);
+                      try {
+                        const allNews = [...stockNews, ...dutchMacroNews];
+                        const newsArticles = allNews.slice(0, 20).map(n => ({ title: n.title, link: n.link }));
+                        const userKey = typeof localStorage !== 'undefined' ? localStorage.getItem('openai_api_key') : null;
+                        const response = await axios.post('/api/ai-explain', {
+                          type: 'market_barometer',
+                          ticker: 'MARKET',
+                          data: newsArticles
+                        }, userKey ? { headers: { 'x-openai-key': userKey } } : undefined);
+                        setMarketBarometer(response.data.explanation);
+                      } catch (e) {
+                        const msg = e.response?.data?.error || e.message || 'Onbekende fout';
+                        setMarketBarometer(`{"error":"${msg}"}`);
+                      } finally {
+                        setLoadingBarometer(false);
+                      }
+                    }}
+                    disabled={loadingBarometer || (stockNews.length === 0 && dutchMacroNews.length === 0)}
+                    className="glass-effect px-3 py-2 rounded-lg text-xs font-medium text-white flex items-center justify-center space-x-2 hover:bg-white/10 transition-all disabled:opacity-50"
+                  >
+                    {loadingBarometer ? <div className="w-3.5 h-3.5 border-2 border-white/20 border-t-white rounded-full animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                    <span>{marketBarometer ? '✕ Verberg Marktbarometer' : 'Marktbarometer'}</span>
+                  </button>
+                </div>
+                {/* Market Barometer render */}
+                {marketBarometer && (() => {
+                  let parsed = null;
+                  try {
+                    const raw = marketBarometer.trim().replace(/^```json\n?/, '').replace(/\n?```$/, '');
+                    parsed = JSON.parse(raw);
+                  } catch { /* ignore */ }
+                  if (!parsed || parsed.error) return null;
+                  const sCfg = {
+                    bullish:  { label: 'Bullish',  color: 'text-emerald-400', bg: 'bg-emerald-400/10', border: 'border-emerald-400/20', dot: 'bg-emerald-400' },
+                    bearish:  { label: 'Bearish',  color: 'text-red-400',     bg: 'bg-red-400/10',     border: 'border-red-400/20',     dot: 'bg-red-400' },
+                    neutraal: { label: 'Neutraal', color: 'text-amber-400',   bg: 'bg-amber-400/10',   border: 'border-amber-400/20',   dot: 'bg-amber-400' },
+                  };
+                  const overall = sCfg[parsed.sentiment] || sCfg.neutraal;
+                  return (
+                    <div className="mb-3 space-y-2">
+                      <div className={`rounded-xl p-3 border ${overall.bg} ${overall.border}`}>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <div className={`w-2 h-2 rounded-full ${overall.dot}`} />
+                            <span className={`text-xs font-semibold ${overall.color}`}>{overall.label}</span>
+                            {typeof parsed.confidence === 'number' && (
+                              <span className="text-[10px] text-white/50">({parsed.confidence}% vertrouwen)</span>
+                            )}
+                          </div>
+                          <span className="text-white/70 text-xs">{parsed.summary}</span>
+                        </div>
+                      </div>
+                      {Array.isArray(parsed.drivers) && parsed.drivers.length > 0 && (
+                        <div className="glass-effect rounded-xl p-3 border border-white/10 space-y-2">
+                          {parsed.drivers.slice(0,3).map((d, i) => {
+                            const ds = sCfg[d.direction] || sCfg.neutraal;
+                            return (
+                              <div key={i} className="flex items-start justify-between gap-2">
+                                <div className="flex items-start gap-2">
+                                  <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${ds.bg} ${ds.color}`}>{d.theme || `Driver ${i+1}`}</span>
+                                  <p className="text-white/70 text-xs leading-relaxed">{d.why}</p>
+                                </div>
+                                {d.link && (
+                                  <a href={d.link} target="_blank" rel="noopener noreferrer" className="text-[10px] text-cyan-400/70 hover:text-cyan-400 inline-flex items-center gap-1">
+                                    <ExternalLink className="w-3 h-3" /> Link
+                                  </a>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+                <button
+                  onClick={async () => {
+                    if (macroNewsSummary) {
+                      setMacroNewsSummary(null);
+                      return;
+                    }
+                    setLoadingMacroSummary(true);
+                    try {
+                      const allNews = [...stockNews, ...dutchMacroNews];
+                      const newsArticles = allNews.slice(0, 15).map(n => ({ title: n.title, link: n.link }));
+                      
+                      const userKey = typeof localStorage !== 'undefined' ? localStorage.getItem('openai_api_key') : null;
+                      const response = await axios.post('/api/ai-explain', {
+                        type: 'macro_news',
+                        ticker: 'MARKET',
+                        data: newsArticles
+                      }, userKey ? { headers: { 'x-openai-key': userKey } } : undefined);
+                      
+                      setMacroNewsSummary(response.data.explanation);
+                    } catch (error) {
+                      console.error('AI macro summary error:', error);
+                      const errorMsg = error.response?.data?.error || error.message || 'Onbekende fout';
+                      setMacroNewsSummary(`❌ Fout: ${errorMsg}\n\nControleer je OpenAI API key in instellingen (⚙️ icoon rechtsboven).`);
+                    } finally {
+                      setLoadingMacroSummary(false);
+                    }
+                  }}
+                  disabled={loadingMacroSummary || (stockNews.length === 0 && dutchMacroNews.length === 0)}
+                  className="w-full glass-effect px-4 py-3 rounded-lg text-sm font-medium text-white flex items-center justify-center space-x-2 hover:bg-white/10 transition-all disabled:opacity-50"
+                >
+                  {loadingMacroSummary
+                    ? <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                    : <Sparkles className="w-4 h-4" />
+                  }
+                  <span>{macroNewsSummary ? '✕ Verberg Samenvatting' : (loadingMacroSummary ? 'AI analyseert nieuws...' : 'AI Macro Nieuws Samenvatting')}</span>
+                </button>
+                
+                {loadingMacroSummary && (
+                  <div className="mt-3 glass-effect rounded-lg p-4">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-4 h-4 border-2 border-purple-400/30 border-t-purple-400 rounded-full animate-spin flex-shrink-0" />
+                      <div className="flex-1 space-y-2">
+                        <div className="h-3 bg-white/10 rounded animate-pulse w-3/4" />
+                        <div className="h-3 bg-white/10 rounded animate-pulse w-1/2" />
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {macroNewsSummary && (() => {
+                  // Parse JSON from AI, fallback to plain text render
+                  let parsed = null;
+                  try {
+                    const raw = macroNewsSummary.trim().replace(/^```json\n?/, '').replace(/\n?```$/, '');
+                    parsed = JSON.parse(raw);
+                  } catch (e) { /* not JSON, render plain */ }
+
+                  const sentimentConfig = {
+                    bullish:  { label: 'Bullish',  color: 'text-emerald-400', bg: 'bg-emerald-400/10', border: 'border-emerald-400/20', dot: 'bg-emerald-400', accent: 'border-l-emerald-400' },
+                    bearish:  { label: 'Bearish',  color: 'text-red-400',     bg: 'bg-red-400/10',     border: 'border-red-400/20',     dot: 'bg-red-400',     accent: 'border-l-red-400' },
+                    neutraal: { label: 'Neutraal', color: 'text-amber-400',   bg: 'bg-amber-400/10',   border: 'border-amber-400/20',   dot: 'bg-amber-400',   accent: 'border-l-amber-400' },
+                  };
+
+                  if (parsed && parsed.items) {
+                    const overall = sentimentConfig[parsed.sentiment] || sentimentConfig.neutraal;
+                    return (
+                      <div className="mt-3 space-y-3">
+                        {/* Header card */}
+                        <div className={`rounded-xl p-4 border ${overall.bg} ${overall.border}`}>
+                          <div className="flex items-center justify-between mb-2">
+                            <Sparkles className={`w-4 h-4 ${overall.color} flex-shrink-0`} />
+                            <div className="flex items-center space-x-1.5">
+                              <div className={`w-2 h-2 rounded-full ${overall.dot}`} />
+                              <span className={`text-xs font-medium ${overall.color}`}>{overall.label}</span>
+                            </div>
+                          </div>
+                          <p className="text-white/80 text-sm leading-relaxed">{parsed.intro}</p>
+                        </div>
+
+                        {/* All bullets in single card */}
+                        <div className="glass-effect rounded-xl p-4 border border-white/10 space-y-3">
+                          {parsed.items.map((item, idx) => {
+                            const s = sentimentConfig[item.sentiment] || sentimentConfig.neutraal;
+                            return (
+                              <div key={idx}>
+                                <div className="border-l-2 pl-3 border-l-white/10 hover:border-l-white/20 transition-colors">
+                                  <div className="flex items-start justify-between gap-2 mb-1">
+                                    <div className="flex items-center space-x-2">
+                                      <span className={`text-xs font-bold ${s.color} opacity-60`}>{idx + 1}.</span>
+                                      <h5 className="text-white font-semibold text-sm leading-tight">{item.title}</h5>
+                                    </div>
+                                    <div className="flex items-center flex-wrap gap-1 flex-shrink-0">
+                                      <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${s.bg} ${s.color}`}>{s.label}</span>
+                                      {item.tickers && item.tickers.slice(0, 3).map(t => (
+                                        <a
+                                          key={t}
+                                          href={`https://finance.yahoo.com/quote/${t}`}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="text-[10px] bg-cyan-400/10 text-cyan-400 px-1.5 py-0.5 rounded font-mono hover:bg-cyan-400/20 cursor-pointer"
+                                        >
+                                          {t}
+                                        </a>
+                                      ))}
+                                    </div>
+                                  </div>
+                                  <p className="text-white/70 text-xs leading-relaxed ml-4">{item.body}</p>
+                                  {item.link && (
+                                    <a
+                                      href={item.link}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center space-x-1 ml-4 mt-1.5 text-[10px] text-cyan-400/60 hover:text-cyan-400 transition-colors"
+                                    >
+                                      <ExternalLink className="w-2.5 h-2.5" />
+                                      <span>Bekijk origineel artikel</span>
+                                    </a>
+                                  )}
+                                </div>
+                                {idx < parsed.items.length - 1 && <hr className="border-white/5 my-3" />}
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {/* Conclusie */}
+                        {parsed.conclusie && (
+                          <div className="glass-effect rounded-xl p-3 border border-white/10">
+                            <p className="text-white/60 text-xs leading-relaxed">
+                              <span className="text-white/40 font-semibold uppercase tracking-wide text-[10px] mr-1.5">Conclusie</span>
+                              {parsed.conclusie}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  // Fallback: plain text render
+                  return (
+                    <div className="mt-3 glass-effect rounded-lg p-4">
+                      <div className="flex items-start space-x-2 mb-3">
+                        <Sparkles className="w-4 h-4 text-purple-400 flex-shrink-0 mt-0.5" />
+                        <h4 className="text-white font-semibold text-sm">AI Macro Samenvatting</h4>
+                      </div>
+                      <div className="text-white/80 text-sm leading-relaxed space-y-2">
+                        {macroNewsSummary.split('\n').map((line, idx) => {
+                          const formattedLine = line.replace(/\*\*(.*?)\*\*/g, '<strong class="text-white font-semibold">$1</strong>');
+                          if (/^\d+\./.test(line.trim())) return <div key={idx} className="ml-2" dangerouslySetInnerHTML={{ __html: formattedLine }} />;
+                          if (line.trim().startsWith('•') || line.trim().startsWith('-')) return <div key={idx} className="ml-2" dangerouslySetInnerHTML={{ __html: formattedLine }} />;
+                          if (line.trim().endsWith(':')) return <div key={idx} className="font-semibold text-white mt-2" dangerouslySetInnerHTML={{ __html: formattedLine }} />;
+                          return line.trim() ? <div key={idx} dangerouslySetInnerHTML={{ __html: formattedLine }} /> : <div key={idx} className="h-1" />;
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Portfolio (Mijn Aandelen) nieuws samenvatting */}
+                {(loadingPortfolioSummary || portfolioNewsSummary) && (
+                  <p className="text-white/30 text-[10px] font-semibold uppercase tracking-widest mt-6 mb-2">Mijn portfolio</p>
+                )}
+                {loadingPortfolioSummary && (
+                  <div className="glass-effect rounded-lg p-4">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-4 h-4 border-2 border-cyan-400/30 border-t-cyan-400 rounded-full animate-spin flex-shrink-0" />
+                      <div className="flex-1 space-y-2">
+                        <div className="h-3 bg-white/10 rounded animate-pulse w-3/4" />
+                        <div className="h-3 bg-white/10 rounded animate-pulse w-1/2" />
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {portfolioNewsSummary && (() => {
+                  let parsed = null;
+                  try {
+                    const raw = portfolioNewsSummary.trim().replace(/^```json\n?/, '').replace(/\n?```$/, '');
+                    parsed = JSON.parse(raw);
+                  } catch (e) { /* ignore */ }
+
+                  const sentimentConfig = {
+                    bullish:  { label: 'Bullish',  color: 'text-emerald-400', bg: 'bg-emerald-400/10', border: 'border-emerald-400/20', dot: 'bg-emerald-400' },
+                    bearish:  { label: 'Bearish',  color: 'text-red-400',     bg: 'bg-red-400/10',     border: 'border-red-400/20',     dot: 'bg-red-400' },
+                    neutraal: { label: 'Neutraal', color: 'text-amber-400',   bg: 'bg-amber-400/10',   border: 'border-amber-400/20',   dot: 'bg-amber-400' },
+                  };
+
+                  if (!parsed || !parsed.items) return null;
+                  const overall = sentimentConfig[parsed.sentiment] || sentimentConfig.neutraal;
+                  return (
+                    <div className="space-y-3">
+                      <div className={`rounded-xl p-4 border ${overall.bg} ${overall.border}`}>
+                        <div className="flex items-center justify-between mb-2">
+                          <Sparkles className={`w-4 h-4 ${overall.color} flex-shrink-0`} />
+                          <div className="flex items-center space-x-1.5">
+                            <div className={`w-2 h-2 rounded-full ${overall.dot}`} />
+                            <span className={`text-xs font-medium ${overall.color}`}>{overall.label}</span>
+                          </div>
+                        </div>
+                        <p className="text-white/80 text-sm leading-relaxed">{parsed.intro}</p>
+                      </div>
+                      <div className="glass-effect rounded-xl p-4 border border-white/10">
+                        {parsed.items.slice(0, 5).map((item, idx) => {
+                          const s = sentimentConfig[item.sentiment] || sentimentConfig.neutraal;
+                          return (
+                            <div key={idx}>
+                              <div className="border-l-2 pl-3 border-l-white/10 hover:border-l-white/20 transition-colors">
+                                <div className="flex items-start justify-between gap-2 mb-1">
+                                  <div className="flex items-center space-x-2">
+                                    <span className={`text-xs font-bold ${s.color} opacity-60`}>{idx + 1}.</span>
+                                    <h5 className="text-white font-semibold text-sm leading-tight">{item.title}</h5>
+                                  </div>
+                                  <div className="flex items-center flex-wrap gap-1 flex-shrink-0">
+                                    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${s.bg} ${s.color}`}>{s.label}</span>
+                                    {item.tickers && item.tickers.slice(0, 3).map(t => (
+                                      <a key={t} href={`https://finance.yahoo.com/quote/${t}`} target="_blank" rel="noopener noreferrer"
+                                        className="text-[10px] bg-cyan-400/10 text-cyan-400 px-1.5 py-0.5 rounded font-mono hover:bg-cyan-400/20">{t}</a>
+                                    ))}
+                                  </div>
+                                </div>
+                                <p className="text-white/70 text-xs leading-relaxed ml-4">{item.body}</p>
+                                {item.link && (
+                                  <a href={item.link} target="_blank" rel="noopener noreferrer"
+                                    className="inline-flex items-center space-x-1 ml-4 mt-1.5 text-[10px] text-cyan-400/60 hover:text-cyan-400 transition-colors">
+                                    <ExternalLink className="w-2.5 h-2.5" /><span>Bekijk origineel artikel</span>
+                                  </a>
+                                )}
+                              </div>
+                              {idx < parsed.items.length - 1 && <hr className="border-white/5 my-3" />}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {parsed.conclusie && (
+                        <div className="glass-effect rounded-xl p-3 border border-white/10">
+                          <p className="text-white/50 text-[11px] leading-relaxed">
+                            <span className="text-white/30 font-semibold uppercase tracking-wide text-[9px] mr-1.5">Conclusie</span>
+                            {parsed.conclusie}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
             </div>
           )}
 
@@ -3387,9 +4548,15 @@ const BeleggenPage = () => {
                   </button>
                 ))}
               </div>
-              {loadingScreenerData && <Activity className="w-4 h-4 text-blue-400 animate-pulse" />}
+              <div className="flex items-center space-x-2">
+                {loadingDynamicTickers && <span className="text-[10px] text-white/30 flex items-center gap-1"><Activity className="w-3 h-3 animate-pulse" />Live ophalen...</span>}
+                {!loadingDynamicTickers && dynamicScreenerTickers[screenerCategory]?.length > 0 && (
+                  <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full">Live</span>
+                )}
+                {loadingScreenerData && <Activity className="w-4 h-4 text-blue-400 animate-pulse" />}
+              </div>
             </div>
-            <p className="text-white/40 text-xs mb-3">{SCREENER_CATEGORIES[screenerCategory].description} • Breed overzicht van interessante aandelen/ETFs</p>
+            <p className="text-white/40 text-xs mb-3">{SCREENER_CATEGORIES[screenerCategory].description} • {dynamicScreenerTickers[screenerCategory]?.length > 0 ? `${dynamicScreenerTickers[screenerCategory].length} live aandelen via Yahoo Finance screener` : 'Breed overzicht van interessante aandelen/ETFs'}</p>
             
             {/* Unified Sort & Filters Widget */}
             <div className="glass-effect rounded-xl p-4 mb-4">
@@ -3456,7 +4623,7 @@ const BeleggenPage = () => {
                       placeholder="Min"
                       value={screenerFilterPriceMin}
                       onChange={(e) => setScreenerFilterPriceMin(e.target.value)}
-                      className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white/70 text-sm focus:outline-none focus:border-purple-500/50 transition-colors"
+                      className="w-16 bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-white/70 text-sm focus:outline-none focus:border-purple-500/50 transition-colors"
                     />
                     <span className="text-white/30">-</span>
                     <input
@@ -3464,9 +4631,25 @@ const BeleggenPage = () => {
                       placeholder="Max"
                       value={screenerFilterPriceMax}
                       onChange={(e) => setScreenerFilterPriceMax(e.target.value)}
-                      className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white/70 text-sm focus:outline-none focus:border-purple-500/50 transition-colors"
+                      className="w-16 bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-white/70 text-sm focus:outline-none focus:border-purple-500/50 transition-colors"
                     />
                   </div>
+                </div>
+
+                {/* RSI Filter */}
+                <div className="bg-white/5 rounded-lg p-3">
+                  <label className="flex items-center space-x-2 text-white/60 text-sm font-medium mb-2">
+                    <Activity className="w-4 h-4" />
+                    <span>RSI Max (Oversold onder 30)</span>
+                  </label>
+                  <input
+                    type="number"
+                    placeholder="Max RSI"
+                    value={screenerFilterRSIMax}
+                    onChange={(e) => setScreenerFilterRSIMax(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white/70 text-sm focus:outline-none focus:border-purple-500/50 transition-colors"
+                  />
+                  <p className="text-white/30 text-[10px] mt-1">RSI onder 30 = oversold (koopkans)</p>
                 </div>
               </div>
               
@@ -3480,12 +4663,13 @@ const BeleggenPage = () => {
                   <span>Technische Indicatoren</span>
                 </button>
                 
-                {(screenerFilterSector !== 'all' || screenerFilterPriceMin || screenerFilterPriceMax) && (
+                {(screenerFilterSector !== 'all' || screenerFilterPriceMin || screenerFilterPriceMax || screenerFilterRSIMax) && (
                   <button
                     onClick={() => {
                       setScreenerFilterSector('all');
                       setScreenerFilterPriceMin('');
                       setScreenerFilterPriceMax('');
+                      setScreenerFilterRSIMax('');
                     }}
                     className="px-3 py-1.5 rounded-lg text-xs font-medium text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 transition-all flex items-center space-x-1.5"
                   >
@@ -3497,7 +4681,10 @@ const BeleggenPage = () => {
             </div>
 
             {(() => {
-              const allStocks = SCREENER_CATEGORIES[screenerCategory].tickers
+              const activeTickers = (dynamicScreenerTickers[screenerCategory]?.length > 0)
+                ? dynamicScreenerTickers[screenerCategory]
+                : SCREENER_CATEGORIES[screenerCategory].tickers;
+              const allStocks = activeTickers
                 .map((stock) => ({ ...stock, data: screenerData[stock.ticker] }))
                 .filter(item => {
                   if (!item.data) return false;
@@ -3558,6 +4745,10 @@ const BeleggenPage = () => {
                 if (screenerFilterPriceMin && price < parseFloat(screenerFilterPriceMin)) return false;
                 if (screenerFilterPriceMax && price > parseFloat(screenerFilterPriceMax)) return false;
                 
+                // RSI filter (only show stocks with RSI below max value)
+                const rsi = item.data.rsi;
+                if (screenerFilterRSIMax && rsi && rsi > parseFloat(screenerFilterRSIMax)) return false;
+                
                 return true;
               })
                 .sort((a, b) => {
@@ -3584,7 +4775,7 @@ const BeleggenPage = () => {
                     {filteredStocks.map((stock) => {
                 const sd = stock.data;
                 const inWatchlist = myWatchlist.some(w => w.ticker === stock.ticker);
-                const currSym = sd?.currency === 'EUR' ? '€' : '$';
+                const currSym = getCurrencySymbol(sd?.currency);
 
                 return (
                   <a
@@ -3618,9 +4809,49 @@ const BeleggenPage = () => {
                               <span>{sd.qualityScore}</span>
                             </span>
                           )}
+                          {aiBuyScores[stock.ticker]?.score != null && (
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold inline-flex items-center gap-1 ${
+                              aiBuyScores[stock.ticker].verdict === 'kopen' ? 'bg-green-500/20 text-green-400' :
+                              aiBuyScores[stock.ticker].verdict === 'verkopen' ? 'bg-red-500/20 text-red-400' :
+                              'bg-yellow-500/10 text-yellow-300'
+                            }`}>
+                              <Sparkles className="w-3 h-3" /> {Math.round(aiBuyScores[stock.ticker].score)}
+                            </span>
+                          )}
                         </div>
+                        {(() => {
+                          const isDynamic = dynamicScreenerTickers[screenerCategory]?.length > 0;
+                          let whyText = stock.why;
+                          if (isDynamic) {
+                            // Prefer company description fetched from assetProfile
+                            if (stock.description) {
+                              whyText = stock.description;
+                            } else if (sd) {
+                              // Fallback: concise performance summary
+                              const parts = [];
+                              if (sd.rsi) {
+                                if (sd.rsi < 35) parts.push('Oversold kans');
+                                else if (sd.rsi > 65) parts.push('Sterk momentum');
+                              }
+                              if (sd.qualityScore >= 70) parts.push('Uitstekende score');
+                              else if (sd.qualityScore >= 55) parts.push('Sterke score');
+                              if (sd.growth1mo != null) parts.push(`${sd.growth1mo >= 0 ? '+' : ''}${sd.growth1mo.toFixed(1)}% deze maand`);
+                              whyText = parts.length > 0 ? parts.join(' • ') : stock.why;
+                            }
+                          }
+                          return whyText ? (
+                            <p className="text-white/40 text-[10px] mt-0.5 leading-snug">{whyText}</p>
+                          ) : null;
+                        })()}
                         <div className="flex items-center space-x-1.5 mt-0.5 flex-wrap gap-y-1">
-                          <span className="text-xs bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded">{stock.sector}</span>
+                          {(() => {
+                            const s = String(stock.sector || '').trim();
+                            const bad = ['unknown','n/a','-','none'];
+                            if (!s || bad.includes(s.toLowerCase())) return null;
+                            return (
+                              <span className="text-xs bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded">{s}</span>
+                            );
+                          })()}
                           {sd?.opportunityType === 'proven' && (
                             <span className="text-[10px] bg-green-500/20 text-green-300 px-1.5 py-0.5 rounded font-medium" title="Bewezen winnaar - sterke 1Y groei">
                               Bewezen Winnaar
@@ -3655,24 +4886,24 @@ const BeleggenPage = () => {
                     {sd ? (
                       <>
                         <div className="flex items-center justify-between mb-2">
-                          <p className="text-white font-bold text-lg">{currSym}{sd.currentPrice.toFixed(2)}</p>
+                          <p className="text-white font-bold text-lg">{currSym}{typeof sd.currentPrice === 'number' ? sd.currentPrice.toFixed(2) : '---'}</p>
                           <div className="flex items-center space-x-2">
                             <div className="text-center min-w-[32px]">
                               <p className="text-white/40 text-[10px]">Dag</p>
-                              <p className={`text-xs font-bold ${sd.dailyChange >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                {sd.dailyChange >= 0 ? '+' : ''}{sd.dailyChange.toFixed(1)}%
+                              <p className={`text-xs font-bold ${typeof sd.dailyChange === 'number' && sd.dailyChange >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                {typeof sd.dailyChange === 'number' ? (sd.dailyChange >= 0 ? '+' : '') + sd.dailyChange.toFixed(1) + '%' : '---'}
                               </p>
                             </div>
                             <div className="text-center min-w-[32px]">
                               <p className="text-white/40 text-[10px]">1M</p>
-                              <p className={`text-xs font-bold ${sd.growth1mo >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                {sd.growth1mo >= 0 ? '+' : ''}{sd.growth1mo.toFixed(1)}%
+                              <p className={`text-xs font-bold ${typeof sd.growth1mo === 'number' && sd.growth1mo >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                {typeof sd.growth1mo === 'number' ? (sd.growth1mo >= 0 ? '+' : '') + sd.growth1mo.toFixed(1) + '%' : '---'}
                               </p>
                             </div>
                             <div className="text-center min-w-[32px]">
                               <p className="text-white/40 text-[10px]">6M</p>
-                              <p className={`text-xs font-bold ${sd.growth6mo >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                {sd.growth6mo >= 0 ? '+' : ''}{sd.growth6mo.toFixed(1)}%
+                              <p className={`text-xs font-bold ${typeof sd.growth6mo === 'number' && sd.growth6mo >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                {typeof sd.growth6mo === 'number' ? (sd.growth6mo >= 0 ? '+' : '') + sd.growth6mo.toFixed(1) + '%' : '---'}
                               </p>
                             </div>
                             <div className="text-center min-w-[32px]">
@@ -3708,11 +4939,11 @@ const BeleggenPage = () => {
                         <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                           {/* RSI Badge */}
                           <div className={`text-[10px] px-2 py-0.5 rounded ${
-                            sd.rsi < 30 ? 'bg-green-500/20 text-green-400' :
-                            sd.rsi > 70 ? 'bg-red-500/20 text-red-400' :
+                            typeof sd.rsi === 'number' && sd.rsi < 30 ? 'bg-green-500/20 text-green-400' :
+                            typeof sd.rsi === 'number' && sd.rsi > 70 ? 'bg-red-500/20 text-red-400' :
                             'bg-blue-500/10 text-blue-300'
                           }`}>
-                            RSI: {sd.rsi.toFixed(0)}
+                            RSI: {typeof sd.rsi === 'number' ? sd.rsi.toFixed(0) : '---'}
                           </div>
                           {/* MACD Badge */}
                           {sd.macd && (
@@ -3732,12 +4963,71 @@ const BeleggenPage = () => {
                               MA: {sd.currentPrice > sd.sma50 ? 'Boven 50d' : 'Onder 50d'}
                             </div>
                           )}
+                          {/* EMA Trend */}
+                          {typeof sd.emaTrendUp === 'boolean' && (
+                            <div className={`text-[10px] px-2 py-0.5 rounded ${sd.emaTrendUp ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                              EMA20/50: {sd.emaTrendUp ? 'Uptrend' : 'Downtrend'}
+                            </div>
+                          )}
+                          {/* Bollinger Bands */}
+                          {sd.bb && (
+                            <div className={`text-[10px] px-2 py-0.5 rounded ${sd.bb.breakoutUp ? 'bg-green-500/20 text-green-400' : sd.bb.squeeze ? 'bg-cyan-500/20 text-cyan-300' : 'bg-white/5 text-white/40'}`}>
+                              BB: {sd.bb.breakoutUp ? 'Breakout ↑' : (sd.bb.squeeze ? 'Squeeze' : 'Normaal')}
+                            </div>
+                          )}
+                          {/* ADX Trend Strength */}
+                          {typeof sd.adx === 'number' && (
+                            <div className={`text-[10px] px-2 py-0.5 rounded ${sd.adx >= 25 ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/5 text-white/40'}`}>
+                              ADX: {Math.round(sd.adx)}{sd.adxDirection === 'up' ? ' ↑' : ' ↓'}
+                            </div>
+                          )}
+                          {/* Stochastic RSI */}
+                          {typeof sd.stochRsi === 'number' && (
+                            <div className={`text-[10px] px-2 py-0.5 rounded ${sd.stochRsi <= 0.2 ? 'bg-green-500/20 text-green-400' : sd.stochRsi >= 0.8 ? 'bg-red-500/20 text-red-400' : 'bg-white/5 text-white/40'}`}>
+                              StochRSI: {Math.round(sd.stochRsi * 100)}%
+                            </div>
+                          )}
+                          {/* ATR as % of price (volatility) */}
+                          {typeof sd.atr === 'number' && sd.currentPrice && (
+                            <div className="text-[10px] px-2 py-0.5 rounded bg-white/5 text-white/40">
+                              ATR: {((sd.atr / sd.currentPrice) * 100).toFixed(1)}%
+                            </div>
+                          )}
+                          {/* 52w Proximity */}
+                          {typeof sd.near52wHigh === 'number' && sd.near52wHigh <= 2 && (
+                            <div className="text-[10px] px-2 py-0.5 rounded bg-green-500/20 text-green-400">
+                              Dicht bij 52w high
+                            </div>
+                          )}
+                          {typeof sd.near52wLow === 'number' && sd.near52wLow <= 2 && (
+                            <div className="text-[10px] px-2 py-0.5 rounded bg-red-500/20 text-red-400">
+                              Dicht bij 52w low
+                            </div>
+                          )}
+                          {/* OBV Accumulation */}
+                          {sd.obvUp && (
+                            <div className="text-[10px] px-2 py-0.5 rounded bg-purple-500/20 text-purple-300">
+                              OBV: Accumulatie
+                            </div>
+                          )}
+                          {/* SMA50 Slope */}
+                          {typeof sd.sma50SlopePositive === 'boolean' && (
+                            <div className={`text-[10px] px-2 py-0.5 rounded ${sd.sma50SlopePositive ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/10 text-yellow-300'}`}>
+                              SMA50 {sd.sma50SlopePositive ? '↑' : '↔︎'}
+                            </div>
+                          )}
+                          {/* MFI (Money Flow Index) */}
+                          {typeof sd.mfi === 'number' && (
+                            <div className={`text-[10px] px-2 py-0.5 rounded ${sd.mfi <= 20 ? 'bg-green-500/20 text-green-400' : sd.mfi >= 80 ? 'bg-red-500/20 text-red-400' : 'bg-white/5 text-white/40'}`}>
+                              MFI: {Math.round(sd.mfi)}
+                            </div>
+                          )}
                           {/* Volume Badge */}
-                          {sd.volume && sd.avgVolume && (
+                          {sd.currentVolume && sd.avgVolume20d && (
                             <div className={`text-[10px] px-2 py-0.5 rounded ${
-                              sd.volume > sd.avgVolume * 1.5 ? 'bg-purple-500/20 text-purple-300' : 'bg-white/5 text-white/40'
+                              sd.currentVolume > sd.avgVolume20d * 1.5 ? 'bg-purple-500/20 text-purple-300' : 'bg-white/5 text-white/40'
                             }`}>
-                              Vol: {sd.volume > sd.avgVolume * 1.5 ? 'Hoog' : 'Normaal'}
+                              Vol: {sd.currentVolume > sd.avgVolume20d * 1.5 ? 'Hoog' : 'Normaal'}
                             </div>
                           )}
                         </div>
@@ -3752,13 +5042,17 @@ const BeleggenPage = () => {
                       currentPrice={sd?.currentPrice}
                       ticker={stock.ticker}
                       isETF={stock.sector === 'Materials' || ['SPY', 'QQQ', 'VGT', 'ARKK', 'SMH', 'XLE', 'XLV', 'XLF', 'IJH', 'IWM', 'VTI', 'VOO', 'VEA', 'VWO', 'IBIT', 'GLD', 'TLT', 'XLK', 'XLY', 'XLP'].includes(stock.ticker)}
+                      hideAIButton={true}
                     />
+
+                    {/* Recent News for this ticker */}
+                    <TickerNews news={tickerNewsMap[stock.ticker]} />
 
                     {/* Actions */}
                     <div className="flex items-center space-x-2">
                       <button
                         onClick={(e) => { e.preventDefault();
-                          setNewInvestment({ name: stock.name, type: 'aandeel', amount: '', ticker_symbol: stock.ticker, shares: '', purchase_price: sd?.currentPrice?.toString() || '', sector: stock.sector, thumbnail_url: '', circular_thumbnail: false, description: '', links: [] });
+                          setNewInvestment({ name: stock.name, type: 'aandeel', amount: '', ticker_symbol: stock.ticker, shares: '', purchase_price: sd?.currentPrice?.toString() || '', sector: stock.sector, thumbnail_url: '', circular_thumbnail: false, description: '', links: [], purchase_currency: sd?.currency || 'EUR' });
                           setShowAddModal(true);
                         }}
                         className="flex-1 bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600 text-white text-xs font-medium px-2 py-1.5 rounded-lg flex items-center justify-center space-x-1 transition-all"
@@ -3767,14 +5061,30 @@ const BeleggenPage = () => {
                         <span>Portfolio</span>
                       </button>
                       <button
-                        onClick={(e) => { 
-                          e.preventDefault(); 
-                          analyzeStockWithAI({ ...sd, ticker: stock.ticker, name: stock.name, sector: stock.sector });
-                        }}
-                        className="px-2 py-1.5 rounded-lg text-xs flex items-center space-x-1 transition-all glass-effect text-purple-400 hover:bg-purple-500/20"
-                        title="AI Analyse"
+                        onClick={() => runAIBuyCheck(stock.ticker)}
+                        disabled={loadingAiBuy[stock.ticker]}
+                        className={`flex-1 bg-gradient-to-r from-purple-500/20 to-blue-500/20 hover:from-purple-500/30 hover:to-blue-500/30 border border-purple-500/30 text-purple-300 text-xs font-medium px-2 py-1.5 rounded-lg flex items-center justify-center space-x-1 transition-all ${
+                          aiBuyScores[stock.ticker]?.verdict === 'kopen' ? 'from-green-500/20 to-emerald-500/20 border-green-500/30 text-green-400' :
+                          aiBuyScores[stock.ticker]?.verdict === 'verkopen' ? 'from-red-500/20 to-orange-500/20 border-red-500/30 text-red-400' : ''
+                        }`}
+                        title="AI Koop Analyse"
                       >
-                        <Sparkles className="w-3 h-3" />
+                        {loadingAiBuy[stock.ticker] ? (
+                          <>
+                            <Activity className="w-3 h-3 animate-pulse" />
+                            <span>Laden...</span>
+                          </>
+                        ) : aiBuyScores[stock.ticker]?.score != null ? (
+                          <>
+                            <Sparkles className="w-3 h-3" />
+                            <span>AI uitleg: {Math.round(aiBuyScores[stock.ticker].score)}</span>
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="w-3 h-3" />
+                            <span>AI uitleg</span>
+                          </>
+                        )}
                       </button>
                       <button
                         onClick={(e) => { e.preventDefault(); inWatchlist ? removeFromWatchlist(stock.ticker) : addToWatchlist(stock); }}
@@ -3928,7 +5238,7 @@ const BeleggenPage = () => {
             {!loadingGems && gemWatchlist.length > 0 && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {gemWatchlist.map((gem, index) => {
-                  const currSymbol = gem.currency === 'EUR' ? '€' : '$';
+                  const currSymbol = getCurrencySymbol(gem.currency);
                   const scoreColor = gem.score >= 60 ? 'from-green-500 to-emerald-600' :
                                      gem.score >= 40 ? 'from-blue-500 to-cyan-600' :
                                      gem.score >= 30 ? 'from-yellow-500 to-amber-600' :
@@ -3954,9 +5264,18 @@ const BeleggenPage = () => {
                             {gem.score}
                           </div>
                           <div>
-                            <div className="flex items-center space-x-2">
+                            <div className="flex items-center space-x-1.5">
                               <h4 className="text-white font-semibold text-sm">{gem.name}</h4>
                               <span className="text-white/40 text-xs">{gem.ticker}</span>
+                              {aiBuyScores[gem.ticker]?.score != null && (
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold inline-flex items-center gap-1 ${
+                                  aiBuyScores[gem.ticker].verdict === 'kopen' ? 'bg-green-500/20 text-green-400' :
+                                  aiBuyScores[gem.ticker].verdict === 'verkopen' ? 'bg-red-500/20 text-red-400' :
+                                  'bg-yellow-500/10 text-yellow-300'
+                                }`}>
+                                  <Sparkles className="w-3 h-3" /> {Math.round(aiBuyScores[gem.ticker].score)}
+                                </span>
+                              )}
                             </div>
                             <div className="flex items-center space-x-2 mt-0.5">
                               <span className="text-xs bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded">{gem.sector}</span>
@@ -3976,7 +5295,7 @@ const BeleggenPage = () => {
                       <div className="grid grid-cols-3 gap-2 mb-3">
                         <div className="bg-white/5 rounded-lg p-2 text-center">
                           <p className="text-white/40 text-xs">Koers</p>
-                          <p className="text-white font-bold text-sm">{currSymbol}{gem.currentPrice.toFixed(2)}</p>
+                          <p className="text-white font-bold text-sm">{currSymbol}{typeof gem.currentPrice === 'number' ? gem.currentPrice.toFixed(2) : '---'}</p>
                         </div>
                         <div className="bg-white/5 rounded-lg p-2 text-center">
                           <p className="text-white/40 text-xs">Market Cap</p>
@@ -3984,32 +5303,32 @@ const BeleggenPage = () => {
                         </div>
                         <div className="bg-white/5 rounded-lg p-2 text-center">
                           <p className="text-white/40 text-xs">Volatiliteit</p>
-                          <p className="text-white font-bold text-sm">{gem.volatility.toFixed(0)}%</p>
+                          <p className="text-white font-bold text-sm">{typeof gem.volatility === 'number' ? gem.volatility.toFixed(0) : '---'}%</p>
                         </div>
                       </div>
 
                       <div className="grid grid-cols-4 gap-2 mb-3">
                         <div className="text-center">
                           <p className="text-white/40 text-xs">Dag</p>
-                          <p className={`text-xs font-bold ${gem.dailyChange >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                            {gem.dailyChange >= 0 ? '+' : ''}{gem.dailyChange.toFixed(1)}%
+                          <p className={`text-xs font-bold ${typeof gem.dailyChange === 'number' && gem.dailyChange >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                            {typeof gem.dailyChange === 'number' ? (gem.dailyChange >= 0 ? '+' : '') + gem.dailyChange.toFixed(1) + '%' : '---'}
                           </p>
                         </div>
                         <div className="text-center">
                           <p className="text-white/40 text-xs">1M</p>
-                          <p className={`text-xs font-bold ${gem.growth1mo >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                            {gem.growth1mo >= 0 ? '+' : ''}{gem.growth1mo.toFixed(1)}%
+                          <p className={`text-xs font-bold ${typeof gem.growth1mo === 'number' && gem.growth1mo >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                            {typeof gem.growth1mo === 'number' ? (gem.growth1mo >= 0 ? '+' : '') + gem.growth1mo.toFixed(1) + '%' : '---'}
                           </p>
                         </div>
                         <div className="text-center">
                           <p className="text-white/40 text-xs">6M</p>
-                          <p className={`text-xs font-bold ${gem.growth6mo >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                            {gem.growth6mo >= 0 ? '+' : ''}{gem.growth6mo.toFixed(1)}%
+                          <p className={`text-xs font-bold ${typeof gem.growth6mo === 'number' && gem.growth6mo >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                            {typeof gem.growth6mo === 'number' ? (gem.growth6mo >= 0 ? '+' : '') + gem.growth6mo.toFixed(1) + '%' : '---'}
                           </p>
                         </div>
                         <div className="text-center">
                           <p className="text-white/40 text-xs">52W Pos</p>
-                          <p className="text-xs font-bold text-white">{gem.positionIn52w.toFixed(0)}%</p>
+                          <p className="text-xs font-bold text-white">{typeof gem.positionIn52w === 'number' ? gem.positionIn52w.toFixed(0) : '---'}%</p>
                         </div>
                       </div>
 
@@ -4032,11 +5351,11 @@ const BeleggenPage = () => {
                           </div>
                           <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                             <div className={`text-[10px] px-2 py-0.5 rounded ${
-                              gem.rsi < 30 ? 'bg-green-500/20 text-green-400' :
-                              gem.rsi > 70 ? 'bg-red-500/20 text-red-400' :
+                              typeof gem.rsi === 'number' && gem.rsi < 30 ? 'bg-green-500/20 text-green-400' :
+                              typeof gem.rsi === 'number' && gem.rsi > 70 ? 'bg-red-500/20 text-red-400' :
                               'bg-blue-500/10 text-blue-300'
                             }`}>
-                              RSI: {gem.rsi.toFixed(0)}
+                              RSI: {typeof gem.rsi === 'number' ? gem.rsi.toFixed(0) : '---'}
                             </div>
                             {gem.macd && (
                               <div className={`text-[10px] px-2 py-0.5 rounded ${
@@ -4068,9 +5387,9 @@ const BeleggenPage = () => {
                       {/* Fundamentals row */}
                       {(gem.trailingPE || gem.forwardPE || gem.pegRatio) && (
                         <div className="flex items-center space-x-3 mb-3 text-xs">
-                          {gem.trailingPE && <span className="text-white/40">P/E: <span className="text-white/70">{gem.trailingPE.toFixed(1)}</span></span>}
-                          {gem.forwardPE && <span className="text-white/40">Fwd P/E: <span className="text-white/70">{gem.forwardPE.toFixed(1)}</span></span>}
-                          {gem.pegRatio && <span className="text-white/40">PEG: <span className={`${gem.pegRatio < 1.5 ? 'text-green-400' : 'text-white/70'}`}>{gem.pegRatio.toFixed(2)}</span></span>}
+                          {typeof gem.trailingPE === 'number' && <span className="text-white/40">P/E: <span className="text-white/70">{gem.trailingPE.toFixed(1)}</span></span>}
+                          {typeof gem.forwardPE === 'number' && <span className="text-white/40">Fwd P/E: <span className="text-white/70">{gem.forwardPE.toFixed(1)}</span></span>}
+                          {typeof gem.pegRatio === 'number' && <span className="text-white/40">PEG: <span className={`${gem.pegRatio < 1.5 ? 'text-green-400' : 'text-white/70'}`}>{gem.pegRatio.toFixed(2)}</span></span>}
                           {gem.analystRating && <span className="text-white/40">Analyst: <span className="text-white/70">{gem.analystRating}</span></span>}
                         </div>
                       )}
@@ -4089,7 +5408,8 @@ const BeleggenPage = () => {
                               sector: gem.sector,
                               thumbnail_url: '',
                               circular_thumbnail: false,
-                              links: []
+                              links: [],
+                              purchase_currency: gem.currency || 'EUR'
                             });
                             setShowAddModal(true);
                           }}
@@ -4097,6 +5417,32 @@ const BeleggenPage = () => {
                         >
                           <Plus className="w-3 h-3" />
                           <span>Portfolio</span>
+                        </button>
+                        <button
+                          onClick={() => runAIBuyCheck(gem.ticker)}
+                          disabled={loadingAiBuy[gem.ticker]}
+                          className={`flex-1 bg-gradient-to-r from-purple-500/20 to-blue-500/20 hover:from-purple-500/30 hover:to-blue-500/30 border border-purple-500/30 text-purple-300 text-xs font-medium px-2 py-2 rounded-lg flex items-center justify-center space-x-1 transition-all ${
+                            aiBuyScores[gem.ticker]?.verdict === 'kopen' ? 'from-green-500/20 to-emerald-500/20 border-green-500/30 text-green-400' :
+                            aiBuyScores[gem.ticker]?.verdict === 'verkopen' ? 'from-red-500/20 to-orange-500/20 border-red-500/30 text-red-400' : ''
+                          }`}
+                          title="AI Koop Analyse"
+                        >
+                          {loadingAiBuy[gem.ticker] ? (
+                            <>
+                              <Activity className="w-3 h-3 animate-pulse" />
+                              <span>Laden...</span>
+                            </>
+                          ) : aiBuyScores[gem.ticker]?.score != null ? (
+                            <>
+                              <Sparkles className="w-3 h-3" />
+                              <span>AI uitleg: {Math.round(aiBuyScores[gem.ticker].score)}</span>
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles className="w-3 h-3" />
+                              <span>AI uitleg</span>
+                            </>
+                          )}
                         </button>
                         <button
                           onClick={() => {
@@ -4343,7 +5689,7 @@ const BeleggenPage = () => {
               const price = sd?.currentPrice || sp?.current || 0;
               const daily = sd?.dailyChange || sp?.changePercent || 0;
               const sparkData = sd?.sparkline || sp?.sparklineData;
-              const currSym = (sd?.currency === 'EUR' || sp?.currency === 'EUR') ? '€' : '$';
+              const currSym = getCurrencySymbol(sd?.currency || sp?.currency);
               const isUp = daily >= 0;
               
               console.log(`Watchlist ${item.ticker}:`, { hasData, hasSD: !!sd, price, recommendation: sd?.recommendation });
@@ -4363,8 +5709,25 @@ const BeleggenPage = () => {
                         <div className="flex items-center space-x-1.5">
                           <span className="text-white font-bold text-sm">{item.ticker}</span>
                           <span className="text-white/50 text-xs truncate">{item.name}</span>
+                          {aiBuyScores[item.ticker]?.score != null && (
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold inline-flex items-center gap-1 ${
+                              aiBuyScores[item.ticker].verdict === 'kopen' ? 'bg-green-500/20 text-green-400' :
+                              aiBuyScores[item.ticker].verdict === 'verkopen' ? 'bg-red-500/20 text-red-400' :
+                              'bg-yellow-500/10 text-yellow-300'
+                            }`}>
+                              <Sparkles className="w-3 h-3" /> {Math.round(aiBuyScores[item.ticker].score)}
+                            </span>
+                          )}
                         </div>
-                        {item.sector && <span className="text-xs bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded">{item.sector}</span>}
+                        {(sd?.sector || item.sector) && (
+                          <span className="text-xs bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded">{sd?.sector || item.sector}</span>
+                        )}
+                        {sd?.description && (
+                          <p className="text-white/40 text-[10px] mt-0.5 leading-snug line-clamp-2">{sd.description}</p>
+                        )}
+                        {aiBuyScores[item.ticker]?.one_liner && (
+                          <p className="text-white/40 text-[10px] mt-0.5 leading-snug line-clamp-2">AI: {aiBuyScores[item.ticker].one_liner}</p>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center space-x-2 flex-shrink-0">
@@ -4375,11 +5738,11 @@ const BeleggenPage = () => {
                     <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                       {hasData ? (
                         <>
-                          <span className="text-white font-bold text-sm">{currSym}{price.toFixed(2)}</span>
+                          <span className="text-white font-bold text-sm">{currSym}{typeof price === 'number' ? price.toFixed(2) : '---'}</span>
                           <span className={`text-xs font-medium ${isUp ? 'text-green-400' : 'text-red-400'}`}>
-                            {isUp ? '+' : ''}{daily.toFixed(1)}%
+                            {typeof daily === 'number' ? (isUp ? '+' : '') + daily.toFixed(1) + '%' : '---'}
                           </span>
-                          {sd.growth1mo !== undefined && (
+                          {typeof sd?.growth1mo === 'number' && (
                             <span className={`text-xs ${sd.growth1mo >= 0 ? 'text-green-400/70' : 'text-red-400/70'}`}>
                               1M: {sd.growth1mo >= 0 ? '+' : ''}{sd.growth1mo.toFixed(1)}%
                             </span>
@@ -4391,9 +5754,35 @@ const BeleggenPage = () => {
                     </div>
                     <div className="flex items-center space-x-1">
                       <button
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); runAIBuyCheck(item.ticker); }}
+                        disabled={loadingAiBuy[item.ticker]}
+                        className={`flex-1 bg-gradient-to-r from-purple-500/20 to-blue-500/20 hover:from-purple-500/30 hover:to-blue-500/30 border border-purple-500/30 text-purple-300 text-xs font-medium px-2 py-1.5 rounded-lg flex items-center justify-center space-x-1 transition-all ${
+                          aiBuyScores[item.ticker]?.verdict === 'kopen' ? 'from-green-500/20 to-emerald-500/20 border-green-500/30 text-green-400' :
+                          aiBuyScores[item.ticker]?.verdict === 'verkopen' ? 'from-red-500/20 to-orange-500/20 border-red-500/30 text-red-400' : ''
+                        }`}
+                        title="AI Koop Analyse"
+                      >
+                        {loadingAiBuy[item.ticker] ? (
+                          <>
+                            <Activity className="w-3 h-3 animate-pulse" />
+                            <span>Laden...</span>
+                          </>
+                        ) : aiBuyScores[item.ticker]?.score != null ? (
+                          <>
+                            <Sparkles className="w-3 h-3" />
+                            <span>AI uitleg: {Math.round(aiBuyScores[item.ticker].score)}</span>
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="w-3 h-3" />
+                            <span>AI uitleg</span>
+                          </>
+                        )}
+                      </button>
+                      <button
                         onClick={(e) => {
                           e.preventDefault(); e.stopPropagation();
-                          setNewInvestment({ name: item.name, type: 'aandeel', amount: '', ticker_symbol: item.ticker, shares: '', purchase_price: price > 0 ? price.toString() : '', sector: item.sector || '', thumbnail_url: '', circular_thumbnail: false, description: '', links: [] });
+                          setNewInvestment({ name: item.name, type: 'aandeel', amount: '', ticker_symbol: item.ticker, shares: '', purchase_price: price > 0 ? price.toString() : '', sector: item.sector || '', thumbnail_url: '', circular_thumbnail: false, description: '', links: [], purchase_currency: sd?.currency || 'EUR' });
                           setShowAddModal(true);
                         }}
                         className="text-blue-400 hover:text-blue-300 p-1 transition-colors"
@@ -4412,11 +5801,11 @@ const BeleggenPage = () => {
                   </div>
                   
                   {/* Technical Indicators */}
-                  {hasData && sd.signal && (
-                    <div className="mb-2">
+                  {hasData && sd && (sd.rsi || sd.signal) && (
+                    <div className="mb-2 pb-2 border-b border-white/5">
                       <div className="flex items-center justify-between mb-1">
-                        <span className="text-white/40 text-[10px]">Technisch Signaal</span>
-                        {sd.signal.overall && (
+                        <span className="text-white/40 text-[10px]">Technische Indicatoren</span>
+                        {sd.signal?.overall && (
                           <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
                             sd.signal.overall === 'STRONG BUY' ? 'bg-green-500/20 text-green-400' :
                             sd.signal.overall === 'BUY' ? 'bg-green-500/10 text-green-300' :
@@ -4435,7 +5824,14 @@ const BeleggenPage = () => {
                             sd.rsi > 70 ? 'bg-red-500/20 text-red-400' :
                             'bg-blue-500/10 text-blue-300'
                           }`}>
-                            RSI: {sd.rsi.toFixed(0)}
+                            RSI: {typeof sd.rsi === 'number' ? sd.rsi.toFixed(0) : sd.rsi}
+                          </div>
+                        )}
+                        {sd.macd && (
+                          <div className={`text-[9px] px-1.5 py-0.5 rounded ${
+                            sd.macd.trend === 'bullish' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+                          }`}>
+                            MACD: {sd.macd.trend === 'bullish' ? '↑' : '↓'}
                           </div>
                         )}
                         {sd.sma50 && sd.sma200 && (
@@ -4447,11 +5843,55 @@ const BeleggenPage = () => {
                             MA: {sd.currentPrice > sd.sma50 ? '↑50d' : '↓50d'}
                           </div>
                         )}
-                        {sd.volume && sd.avgVolume && (
+                        {typeof sd.emaTrendUp === 'boolean' && (
+                          <div className={`text-[9px] px-1.5 py-0.5 rounded ${sd.emaTrendUp ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                            EMA: {sd.emaTrendUp ? 'Up' : 'Down'}
+                          </div>
+                        )}
+                        {sd.bb && (
+                          <div className={`text-[9px] px-1.5 py-0.5 rounded ${sd.bb.breakoutUp ? 'bg-green-500/20 text-green-400' : sd.bb.squeeze ? 'bg-cyan-500/20 text-cyan-300' : 'bg-white/5 text-white/40'}`}>
+                            BB: {sd.bb.breakoutUp ? '↑' : (sd.bb.squeeze ? 'Squeeze' : '—')}
+                          </div>
+                        )}
+                        {typeof sd.adx === 'number' && (
+                          <div className={`text-[9px] px-1.5 py-0.5 rounded ${sd.adx >= 25 ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/5 text-white/40'}`}>
+                            ADX: {Math.round(sd.adx)}{sd.adxDirection === 'up' ? '↑' : '↓'}
+                          </div>
+                        )}
+                        {typeof sd.stochRsi === 'number' && (
+                          <div className={`text-[9px] px-1.5 py-0.5 rounded ${sd.stochRsi <= 0.2 ? 'bg-green-500/20 text-green-400' : sd.stochRsi >= 0.8 ? 'bg-red-500/20 text-red-400' : 'bg-white/5 text-white/40'}`}>
+                            StochRSI: {Math.round(sd.stochRsi * 100)}%
+                          </div>
+                        )}
+                        {typeof sd.atr === 'number' && sd.currentPrice && (
+                          <div className="text-[9px] px-1.5 py-0.5 rounded bg-white/5 text-white/40">
+                            ATR: {((sd.atr / sd.currentPrice) * 100).toFixed(1)}%
+                          </div>
+                        )}
+                        {typeof sd.near52wHigh === 'number' && sd.near52wHigh <= 2 && (
+                          <div className="text-[9px] px-1.5 py-0.5 rounded bg-green-500/20 text-green-400">52w High</div>
+                        )}
+                        {typeof sd.near52wLow === 'number' && sd.near52wLow <= 2 && (
+                          <div className="text-[9px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-400">52w Low</div>
+                        )}
+                        {sd.obvUp && (
+                          <div className="text-[9px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300">OBV↑</div>
+                        )}
+                        {typeof sd.sma50SlopePositive === 'boolean' && (
+                          <div className={`text-[9px] px-1.5 py-0.5 rounded ${sd.sma50SlopePositive ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/10 text-yellow-300'}`}>
+                            SMA50 {sd.sma50SlopePositive ? '↑' : '↔'}
+                          </div>
+                        )}
+                        {typeof sd.mfi === 'number' && (
+                          <div className={`text-[9px] px-1.5 py-0.5 rounded ${sd.mfi <= 20 ? 'bg-green-500/20 text-green-400' : sd.mfi >= 80 ? 'bg-red-500/20 text-red-400' : 'bg-white/5 text-white/40'}`}>
+                            MFI: {Math.round(sd.mfi)}
+                          </div>
+                        )}
+                        {sd.currentVolume && sd.avgVolume20d && (
                           <div className={`text-[9px] px-1.5 py-0.5 rounded ${
-                            sd.volume > sd.avgVolume * 1.5 ? 'bg-purple-500/20 text-purple-300' : 'bg-white/5 text-white/40'
+                            sd.currentVolume > sd.avgVolume20d * 1.5 ? 'bg-purple-500/20 text-purple-300' : 'bg-white/5 text-white/40'
                           }`}>
-                            Vol: {sd.volume > sd.avgVolume * 1.5 ? 'Hoog' : 'Normaal'}
+                            Vol: {sd.currentVolume > sd.avgVolume20d * 1.5 ? 'Hoog' : 'Normaal'}
                           </div>
                         )}
                       </div>
@@ -4465,7 +5905,11 @@ const BeleggenPage = () => {
                     currentPrice={sd?.currentPrice}
                     ticker={item.ticker}
                     isETF={item.sector === 'ETF' || item.type === 'etf'}
+                    hideAIButton={true}
                   />
+
+                  {/* Recent News for this ticker */}
+                  <TickerNews news={tickerNewsMap[item.ticker]} />
                 </a>
               );
             })}
@@ -4607,10 +6051,28 @@ const BeleggenPage = () => {
                     <input
                       type="text"
                       value={editingInvestment ? editingInvestment.ticker_symbol || '' : newInvestment.ticker_symbol}
-                      onChange={(e) => editingInvestment
-                        ? setEditingInvestment({...editingInvestment, ticker_symbol: e.target.value})
-                        : setNewInvestment({...newInvestment, ticker_symbol: e.target.value})
-                      }
+                      onChange={(e) => {
+                        const ticker = e.target.value.toUpperCase();
+                        const currency = stockPrices[ticker]?.currency || screenerData[ticker]?.currency || 'EUR';
+                        const sd = screenerData[ticker];
+                        if (editingInvestment) {
+                          setEditingInvestment({
+                            ...editingInvestment,
+                            ticker_symbol: ticker,
+                            purchase_currency: currency,
+                            sector: editingInvestment.sector || sd?.sector || '',
+                            description: editingInvestment.description || sd?.description || ''
+                          });
+                        } else {
+                          setNewInvestment({
+                            ...newInvestment,
+                            ticker_symbol: ticker,
+                            purchase_currency: currency,
+                            sector: newInvestment.sector || sd?.sector || '',
+                            description: newInvestment.description || sd?.description || ''
+                          });
+                        }
+                      }}
                       className="w-full input-plain rounded-lg px-3 py-2 uppercase"
                       placeholder="Bijv. AAPL, JEDI:XETR, IREN:XNAS, VWCE"
                     />
@@ -4683,32 +6145,55 @@ const BeleggenPage = () => {
                     </div>
 
                     <div>
-                      <label className="block text-white/70 text-sm mb-1">Aankoopprijs (€)</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={editingInvestment ? editingInvestment.purchase_price || '' : newInvestment.purchase_price}
-                        onChange={(e) => {
-                          const pp = e.target.value;
-                          if (editingInvestment) {
-                            const shares = editingInvestment.shares || '';
-                            setEditingInvestment({
-                              ...editingInvestment, 
-                              purchase_price: pp,
-                              amount: autoCalculateAmount(shares, pp)
-                            });
-                          } else {
-                            const shares = newInvestment.shares || '';
-                            setNewInvestment({
-                              ...newInvestment, 
-                              purchase_price: pp,
-                              amount: autoCalculateAmount(shares, pp)
-                            });
+                      <label className="block text-white/70 text-sm mb-1">Aankoopprijs</label>
+                      <div className="flex space-x-2">
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={editingInvestment ? editingInvestment.purchase_price || '' : newInvestment.purchase_price}
+                          onChange={(e) => {
+                            const pp = e.target.value;
+                            if (editingInvestment) {
+                              const shares = editingInvestment.shares || '';
+                              setEditingInvestment({
+                                ...editingInvestment,
+                                purchase_price: pp,
+                                amount: autoCalculateAmount(shares, pp)
+                              });
+                            } else {
+                              const shares = newInvestment.shares || '';
+                              setNewInvestment({
+                                ...newInvestment,
+                                purchase_price: pp,
+                                amount: autoCalculateAmount(shares, pp)
+                              });
+                            }
+                          }}
+                          className="flex-1 input-plain rounded-lg px-3 py-2"
+                          placeholder="150.00"
+                        />
+                        <select
+                          value={editingInvestment ? editingInvestment.purchase_currency || 'EUR' : newInvestment.purchase_currency || 'EUR'}
+                          onChange={(e) => editingInvestment
+                            ? setEditingInvestment({...editingInvestment, purchase_currency: e.target.value})
+                            : setNewInvestment({...newInvestment, purchase_currency: e.target.value})
                           }
-                        }}
-                        className="w-full input-plain rounded-lg px-3 py-2"
-                        placeholder="150.00"
-                      />
+                          className="w-24 input-plain rounded-lg px-2 py-2 text-sm"
+                        >
+                          <option value="EUR">€ EUR</option>
+                          <option value="USD">$ USD</option>
+                          <option value="SEK">kr SEK</option>
+                          <option value="GBP">£ GBP</option>
+                          <option value="NOK">kr NOK</option>
+                          <option value="DKK">kr DKK</option>
+                          <option value="CHF">CHF</option>
+                          <option value="JPY">¥ JPY</option>
+                          <option value="CAD">C$ CAD</option>
+                          <option value="AUD">A$ AUD</option>
+                          <option value="HKD">HK$ HKD</option>
+                        </select>
+                      </div>
+                      <p className="text-white/40 text-xs mt-1">Prijs wordt omgerekend naar EUR voor winst/verlies berekening</p>
                     </div>
                   </div>
 
@@ -4716,21 +6201,29 @@ const BeleggenPage = () => {
                   {(() => {
                     const s = editingInvestment ? editingInvestment.shares : newInvestment.shares;
                     const p = editingInvestment ? editingInvestment.purchase_price : newInvestment.purchase_price;
+                    const currency = editingInvestment ? editingInvestment.purchase_currency || 'EUR' : newInvestment.purchase_currency || 'EUR';
                     const calc = autoCalculateAmount(s, p);
+                    const calcEUR = calc ? convertToEUR(parseFloat(calc), currency) : 0;
                     return calc ? (
                       <div className="p-3 bg-green-500/10 rounded-lg">
                         <div className="flex justify-between items-center">
                           <span className="text-white/60 text-sm">
-                            {editingInvestment && editingInvestment.investment_batches?.length > 0 
-                              ? 'Totaal bedrag (alle aankopen)' 
-                              : 'Berekend bedrag'}
+                            {editingInvestment && editingInvestment.investment_batches?.length > 0
+                              ? 'Totaal bedrag (alle aankopen)'
+                              : 'Berekend bedrag (in EUR)'}
                           </span>
-                          <span className="text-green-400 font-bold">€{parseFloat(calc).toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                          <span className="text-green-400 font-bold">€{calcEUR.toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                         </div>
+                        {currency !== 'EUR' && (
+                          <div className="flex justify-between items-center mt-1 pt-1 border-t border-white/10">
+                            <span className="text-white/40 text-xs">Oorspronkelijk ({currency})</span>
+                            <span className="text-white/60 text-xs">{getCurrencySymbol(currency)}{parseFloat(calc).toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                          </div>
+                        )}
                         {editingInvestment && editingInvestment.investment_batches?.length > 0 && (
                           <div className="flex justify-between items-center mt-1 pt-1 border-t border-white/10">
                             <span className="text-white/40 text-xs">Gemiddelde aankoopprijs</span>
-                            <span className="text-white/80 text-xs font-semibold">€{parseFloat(p).toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            <span className="text-white/80 text-xs font-semibold">{getCurrencySymbol(currency)}{parseFloat(p).toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                           </div>
                         )}
                       </div>
@@ -5121,7 +6614,158 @@ const BeleggenPage = () => {
         aiAnalysis={aiAnalysis}
         loadingAI={loadingAI}
         selectedStock={selectedStockForAI}
+        tickerNews={selectedStockForAI?.ticker ? tickerNewsMap[selectedStockForAI.ticker] || [] : []}
       />
+
+      {/* AI Buy-Check Popup Modal */}
+      {aiBuyModalTicker && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setAiBuyModalTicker(null)}>
+          <div className="gradient-card rounded-xl p-6 max-w-3xl w-full max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h3 className="text-white font-bold text-xl flex items-center space-x-2">
+                  <Sparkles className="w-6 h-6 text-purple-400" />
+                  <span>AI Koop Analyse</span>
+                </h3>
+                <p className="text-white/50 text-sm mt-1">{aiBuyModalTicker}</p>
+              </div>
+              <button onClick={() => setAiBuyModalTicker(null)} className="text-white/40 hover:text-white transition-colors">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            {loadingAiBuy[aiBuyModalTicker] ? (
+              <div className="text-center py-16">
+                <div className="animate-spin rounded-full h-14 w-14 border-b-2 border-purple-400 mx-auto mb-4"></div>
+                <p className="text-white/70 text-lg font-medium">AI analyseert {aiBuyModalTicker}...</p>
+                <p className="text-white/40 text-sm mt-2">Dit kan 10-20 seconden duren</p>
+              </div>
+            ) : aiBuyScores[aiBuyModalTicker] ? (
+              <>
+                {/* Score Card */}
+                <div className={`glass-effect rounded-xl p-6 mb-4 border-2 ${
+                  aiBuyScores[aiBuyModalTicker].verdict === 'kopen' ? 'border-green-500/30' :
+                  aiBuyScores[aiBuyModalTicker].verdict === 'verkopen' ? 'border-red-500/30' :
+                  'border-yellow-500/30'
+                }`}>
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <span className="text-white/50 text-sm uppercase tracking-wider">AI Score</span>
+                      <div className={`text-5xl font-bold mt-1 ${
+                        aiBuyScores[aiBuyModalTicker].verdict === 'kopen' ? 'text-green-400' :
+                        aiBuyScores[aiBuyModalTicker].verdict === 'verkopen' ? 'text-red-400' :
+                        'text-yellow-400'
+                      }`}>
+                        {Math.round(aiBuyScores[aiBuyModalTicker].score)}
+                      </div>
+                    </div>
+                    <div className={`px-4 py-2 rounded-lg font-bold text-lg ${
+                      aiBuyScores[aiBuyModalTicker].verdict === 'kopen' ? 'bg-green-500/20 text-green-400' :
+                      aiBuyScores[aiBuyModalTicker].verdict === 'verkopen' ? 'bg-red-500/20 text-red-400' :
+                      'bg-yellow-500/20 text-yellow-400'
+                    }`}>
+                      {aiBuyScores[aiBuyModalTicker].verdict?.toUpperCase() || '---'}
+                    </div>
+                  </div>
+                  {aiBuyScores[aiBuyModalTicker].one_liner && (
+                    <div className={`p-4 rounded-lg border ${
+                      aiBuyScores[aiBuyModalTicker].verdict === 'kopen' ? 'bg-green-500/10 border-green-500/20' :
+                      aiBuyScores[aiBuyModalTicker].verdict === 'verkopen' ? 'bg-red-500/10 border-red-500/20' :
+                      'bg-yellow-500/10 border-yellow-500/20'
+                    }`}>
+                      <p className="text-white/90 text-base leading-relaxed">"{aiBuyScores[aiBuyModalTicker].one_liner}"</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Details Grid */}
+                <div className="glass-effect rounded-xl p-5 mb-4">
+                  <h4 className="text-white font-semibold text-base mb-4">Details</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-white/5 rounded-lg p-4">
+                      <span className="text-white/50 text-xs uppercase tracking-wider">Confidentie</span>
+                      <p className="text-white font-bold text-2xl mt-1">{Math.round(aiBuyScores[aiBuyModalTicker].confidence || 0)}%</p>
+                    </div>
+                    {aiBuyScores[aiBuyModalTicker].timeframe && (
+                      <div className="bg-white/5 rounded-lg p-4">
+                        <span className="text-white/50 text-xs uppercase tracking-wider">Tijdslijn</span>
+                        <p className="text-white font-bold text-2xl mt-1">{aiBuyScores[aiBuyModalTicker].timeframe}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Reasons */}
+                {aiBuyScores[aiBuyModalTicker].reasons && aiBuyScores[aiBuyModalTicker].reasons.length > 0 && (
+                  <div className="glass-effect rounded-xl p-5 mb-4">
+                    <h4 className="text-white font-semibold text-base mb-4">Redenen</h4>
+                    <ul className="space-y-2">
+                      {aiBuyScores[aiBuyModalTicker].reasons.map((reason, idx) => (
+                        <li key={idx} className="text-white/80 text-sm flex items-start space-x-3 bg-white/5 rounded-lg p-3">
+                          <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5 ${
+                            aiBuyScores[aiBuyModalTicker].verdict === 'kopen' ? 'bg-green-500/20 text-green-400' :
+                            aiBuyScores[aiBuyModalTicker].verdict === 'verkopen' ? 'bg-red-500/20 text-red-400' :
+                            'bg-yellow-500/20 text-yellow-400'
+                          }`}>
+                            {idx + 1}
+                          </span>
+                          <span className="leading-relaxed">{reason}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* News Section */}
+                <div className="glass-effect rounded-xl p-5">
+                  <h4 className="text-white font-semibold text-base mb-4 flex items-center space-x-2">
+                    <Newspaper className="w-5 h-5 text-purple-400" />
+                    <span>Laatste Nieuwsberichten</span>
+                  </h4>
+                  {tickerNewsMap[aiBuyModalTicker] && tickerNewsMap[aiBuyModalTicker].length > 0 ? (
+                    <div className="space-y-3">
+                      {tickerNewsMap[aiBuyModalTicker].slice(0, 5).map((news, idx) => (
+                        <a
+                          key={idx}
+                          href={news.link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block bg-white/5 rounded-lg p-4 hover:bg-white/10 transition-all group"
+                        >
+                          <p className="text-white/90 text-sm font-medium leading-relaxed mb-2 group-hover:text-purple-300 transition-colors">
+                            {news.title}
+                          </p>
+                          <div className="flex items-center space-x-2 text-xs text-white/40">
+                            <span>{news.publisher || 'Unknown'}</span>
+                            <span>•</span>
+                            <span>{news.providerPublishTime ? new Date(news.providerPublishTime).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Recent'}</span>
+                          </div>
+                        </a>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-6 text-white/40">
+                      <Newspaper className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                      <p className="text-sm">Geen nieuwsberichten beschikbaar</p>
+                    </div>
+                  )}
+                </div>
+
+                <p className="text-white/30 text-xs mt-4 text-center">
+                  Gegenereerd op: {new Date().toLocaleString('nl-NL')}
+                </p>
+              </>
+            ) : (
+              <div className="glass-effect rounded-xl p-6 border border-red-500/20">
+                <div className="flex flex-col items-center text-center py-8">
+                  <AlertCircle className="w-12 h-12 text-red-400 mb-4" />
+                  <p className="text-red-400 font-semibold text-lg mb-2">Geen analyse beschikbaar</p>
+                  <p className="text-white/60 text-sm">Probeer de AI koop analyse opnieuw uit te voeren.</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
