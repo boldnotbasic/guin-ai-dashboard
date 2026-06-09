@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Bell, Calendar, Sparkles, TrendingUp, AlertTriangle, ExternalLink } from 'lucide-react';
+import { X, Bell, Calendar, Sparkles, TrendingUp, AlertTriangle, ExternalLink, Newspaper, Clock } from 'lucide-react';
 import { ALERT_TYPES } from '../utils/alertSystem';
 
 // Alert Modal Component
@@ -297,7 +297,7 @@ export const EarningsModal = ({ show, onClose, earningsData, loadingEarnings, ea
 };
 
 // AI Analysis Modal
-export const AIModal = ({ show, onClose, aiAnalysis, loadingAI, selectedStock }) => {
+export const AIModal = ({ show, onClose, aiAnalysis, loadingAI, selectedStock, tickerNews = [] }) => {
   if (!show) return null;
 
   return (
@@ -359,6 +359,32 @@ export const AIModal = ({ show, onClose, aiAnalysis, loadingAI, selectedStock })
           </div>
         ) : (
           <p className="text-white/40 text-center py-8">Selecteer een aandeel om te analyseren</p>
+        )}
+
+        {tickerNews && tickerNews.length > 0 && (
+          <div className="glass-effect rounded-lg p-4 mt-4">
+            <div className="flex items-center space-x-2 mb-2">
+              <Newspaper className="w-4 h-4 text-cyan-400" />
+              <h3 className="text-white font-medium text-sm">Recent nieuws</h3>
+            </div>
+            <div className="space-y-2">
+              {tickerNews.slice(0, 3).map((n, i) => (
+                <a key={i} href={n.link || n.url} target="_blank" rel="noopener noreferrer" className="block hover:bg-white/5 rounded p-2 transition-colors">
+                  <p className="text-white text-sm leading-snug line-clamp-2 hover:text-cyan-300">{n.title}</p>
+                  <div className="flex items-center space-x-2 mt-1.5">
+                    {n.publisher && <span className="text-white/40 text-xs">{n.publisher}</span>}
+                    {n.publishedAt && (
+                      <span className="text-white/30 text-xs flex items-center space-x-1">
+                        <Clock className="w-3 h-3" />
+                        <span>{new Date(n.publishedAt).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })}</span>
+                      </span>
+                    )}
+                    <ExternalLink className="w-3 h-3 text-white/20 ml-auto" />
+                  </div>
+                </a>
+              ))}
+            </div>
+          </div>
         )}
       </div>
     </div>

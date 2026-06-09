@@ -32,7 +32,7 @@
         },
         {
           "key": "Access-Control-Allow-Headers",
-          "value": "Content-Type"
+          "value": "Content-Type, x-openai-key, X-OpenAI-Key"
         }
       ]
     }

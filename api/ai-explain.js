@@ -14,11 +14,25 @@ const getCacheKey = (type, ticker, data) => {
   return `${CACHE_VERSION}-${type}-${ticker}-${JSON.stringify(data).substring(0, 100)}`;
 };
 
-const callOpenAI = async (prompt, apiKeyOverride) => {
+const callOpenAI = async (prompt, apiKeyOverride, opts = {}) => {
   const key = apiKeyOverride || OPENAI_API_KEY;
   if (!key) {
     throw new Error('OPENAI_API_KEY not configured in environment variables');
   }
+
+  const body = {
+    model: 'gpt-4o-mini',
+    messages: [{
+      role: 'system',
+      content: 'Je bent een financieel analist die complexe data uitlegt in begrijpelijk Nederlands. Gebruik duidelijke structuur met bullets en nummering waar gevraagd.'
+    }, {
+      role: 'user',
+      content: prompt
+    }],
+    max_tokens: opts.max_tokens || 900,
+    temperature: opts.temperature ?? 0.7,
+  };
+  if (opts.json) body.response_format = { type: 'json_object' };
 
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -26,18 +40,7 @@ const callOpenAI = async (prompt, apiKeyOverride) => {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${key}`
     },
-    body: JSON.stringify({
-      model: 'gpt-4o-mini',
-      messages: [{
-        role: 'system',
-        content: 'Je bent een financieel analist die complexe data uitlegt in begrijpelijk Nederlands. Gebruik duidelijke structuur met bullets en nummering waar gevraagd.'
-      }, {
-        role: 'user',
-        content: prompt
-      }],
-      max_tokens: 900,
-      temperature: 0.7
-    })
+    body: JSON.stringify(body)
   });
 
   if (!response.ok) {
@@ -53,7 +56,7 @@ module.exports = async function handler(req, res) {
   // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-openai-key, X-OpenAI-Key');
   
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
@@ -321,6 +324,93 @@ Regels:
 - Alleen JSON teruggeven`;
         break;
 
+      case 'semantic_discover': {
+        // data: { query, portfolio: [{ticker, name, sector}], watchlist: [{ticker, name}], avoid: [tickers] }
+        const q = String(data?.query || '').slice(0, 300);
+        const pf = Array.isArray(data?.portfolio) ? data.portfolio.slice(0, 30) : [];
+        const wl = Array.isArray(data?.watchlist) ? data.watchlist.slice(0, 30) : [];
+        const avoid = Array.from(new Set([...(pf.map(p => p.ticker)), ...(wl.map(w => w.ticker)), ...(Array.isArray(data?.avoid) ? data.avoid : [])])).filter(Boolean);
+        const pfLine = pf.map(p => `${p.ticker}${p.sector ? ' ('+p.sector+')' : ''}`).join(', ') || 'leeg';
+        const wlLine = wl.map(w => w.ticker).join(', ') || 'leeg';
+
+        prompt = `Je bent een senior beleggingsadviseur. De gebruiker zoekt aandelen/ETF's die passen bij deze omschrijving:
+"${q}"
+
+Huidige portfolio (vermijd duplicaten): ${pfLine}
+Watchlist (vermijd duplicaten): ${wlLine}
+
+Geef UITSLUITEND geldig JSON terug (geen markdown):
+{
+  "strategy": "<1 zin: wat is de gemeenschappelijke beleggingsthese?>",
+  "results": [
+    {
+      "ticker": "<exact Yahoo-Finance ticker, bv. NVDA, ASML.AS, VWCE.DE>",
+      "name": "<bedrijfsnaam>",
+      "sector": "<bv. Technology, Healthcare, Financial, Energy, Industrial, Consumer, Materials, Utilities, Real Estate, Communication, Index>",
+      "type": "aandeel|etf|crypto",
+      "fit_score": <geheel 1-100>,
+      "thesis": "<1-2 zinnen: WAAROM dit aandeel past bij de query>",
+      "risk": "laag|midden|hoog",
+      "horizon": "kort|midden|lang"
+    }
+  ],
+  "warnings": ["<optioneel: max 2 korte risico-waarschuwingen>"]
+}
+
+Regels:
+- Geef 6-10 results, gesorteerd op fit_score aflopend
+- Gebruik ALLEEN bestaande, verhandelbare tickers (Yahoo Finance formaat met exchange-suffix indien niet-VS, bv. ASML.AS, MC.PA, SAP.DE)
+- Sla tickers uit deze lijst over: ${avoid.join(', ') || '(geen)'}
+- Mix indien zinvol: aandelen + 1-2 thematische ETF's
+- thesis: concreet, geen vage marketing — noem product/moat/groei
+- Schrijf in het Nederlands. Alleen JSON.`;
+        break;
+      }
+
+      case 'portfolio_analysis': {
+        // data: { positions: [{ticker, name, sector, valueEUR, weightPct, growth1yr, dailyChange}], totalValueEUR, topSectors:[{sector,pct}], cashPct? }
+        const positions = Array.isArray(data?.positions) ? data.positions : [];
+        const total = data?.totalValueEUR || 0;
+        const sectorBreak = Array.isArray(data?.topSectors) ? data.topSectors : [];
+        const top = positions
+          .slice()
+          .sort((a, b) => (b.weightPct || 0) - (a.weightPct || 0))
+          .slice(0, 25)
+          .map(p => `${p.ticker} ${p.sector || '?'} • ${(p.weightPct || 0).toFixed(1)}% • 1y ${p.growth1yr != null ? p.growth1yr.toFixed(0)+'%' : 'n/a'}`)
+          .join('\n');
+        const sectorLine = sectorBreak.map(s => `${s.sector}: ${s.pct.toFixed(1)}%`).join(' | ') || 'onbekend';
+
+        prompt = `Je bent een portfoliomanager. Analyseer dit portfolio op diversificatie, concentratierisico en geef concrete rebalance-acties. UITSLUITEND geldig JSON (geen markdown):
+
+Totale waarde: €${Math.round(total).toLocaleString('nl-NL')}
+Sectorverdeling: ${sectorLine}
+Posities (max 25):
+${top || '(leeg)'}
+
+Retourneer EXACT:
+{
+  "diversification_score": <geheel 0-100, 100 = perfect verdeeld>,
+  "risk_level": "laag|midden|hoog",
+  "headline": "<1 zin samenvatting>",
+  "strengths": ["<bullet>", "<bullet>"],
+  "concentration_risks": [
+    { "type": "ticker|sector|geografie|currency", "subject": "<bv. NVDA of Technology>", "weight_pct": <getal>, "why": "<max 2 zinnen risico>" }
+  ],
+  "suggestions": [
+    { "action": "verkleinen|uitbreiden|toevoegen|verkopen|hedgen", "subject": "<ticker of sector>", "rationale": "<1 zin waarom>", "priority": "hoog|midden|laag" }
+  ],
+  "missing_exposure": ["<bv. Healthcare, Emerging Markets, Bonds — sectoren/themas die ontbreken>"],
+  "next_actions": ["<concrete actie 1>", "<concrete actie 2>", "<concrete actie 3>"]
+}
+
+Regels:
+- diversification_score: straf zware concentratie (>20% in één positie of >40% in één sector)
+- 2-4 concentration_risks (alleen relevante)
+- 3-5 suggestions, sorteer op priority
+- Schrijf in het Nederlands. Alleen JSON.`;
+        break;
+      }
+
       default:
         return res.status(400).json({ error: `Unknown type: ${type}` });
     }
@@ -329,7 +419,14 @@ Regels:
     const clientKey = req.headers['x-openai-key'] || req.headers['X-OpenAI-Key'];
 
     console.log(`🤖 Generating ${type} explanation for ${ticker}...`);
-    const explanation = await callOpenAI(prompt, clientKey);
+    const jsonTypes = new Set(['semantic_discover', 'portfolio_analysis', 'market_barometer', 'buy_check', 'news', 'macro_news', 'portfolio_news']);
+    const bigTypes = new Set(['semantic_discover', 'portfolio_analysis']);
+    const callOpts = {
+      json: jsonTypes.has(type),
+      max_tokens: bigTypes.has(type) ? 1800 : 900,
+      temperature: bigTypes.has(type) ? 0.4 : 0.7,
+    };
+    const explanation = await callOpenAI(prompt, clientKey, callOpts);
 
     // Cache the result
     cache.set(cacheKey, {

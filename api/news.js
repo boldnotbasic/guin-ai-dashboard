@@ -47,6 +47,7 @@ const fetchYahooNewsForTicker = async (ticker) => {
       title: article.title,
       link: article.link || article.url,
       publisher: article.publisher || 'Unknown',
+      source: 'Yahoo Finance',
       publishedAt: article.providerPublishTime ? article.providerPublishTime * 1000 : Date.now(),
       ticker: symbol,
       relatedTickers: article.relatedTickers || [symbol],

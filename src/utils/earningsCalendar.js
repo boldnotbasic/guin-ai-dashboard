@@ -375,7 +375,7 @@ export class EarningsCalendar {
   }
 
   // Fetch earnings for multiple tickers via Vercel API
-  async fetchMultipleEarnings(tickerList) {
+  async fetchMultipleEarnings(tickerList, { force = false } = {}) {
     const normalized = tickerList.map(t => 
       typeof t === 'string' ? { ticker: t, name: null } : t
     );
@@ -383,31 +383,70 @@ export class EarningsCalendar {
     if (normalized.length === 0) return {};
 
     try {
-      const tickerStr = normalized.map(t => t.ticker).join(',');
-      const response = await axios.get(`/api/earnings`, {
-        params: { tickers: tickerStr },
-        timeout: 30000
+      const CHUNK_SIZE = 10; // /api/earnings processes max 10 per request
+      const chunks = [];
+      for (let i = 0; i < normalized.length; i += CHUNK_SIZE) {
+        chunks.push(normalized.slice(i, i + CHUNK_SIZE));
+      }
+
+      const mergedResults = {};
+
+      // Fetch chunks sequentially to avoid hammering free API limits
+      for (const chunk of chunks) {
+        const tickerStr = chunk.map(t => t.ticker).join(',');
+        // eslint-disable-next-line no-await-in-loop
+        const response = await axios.get(`/api/earnings`, {
+          params: { tickers: tickerStr, force: force ? '1' : undefined },
+          timeout: 30000
+        });
+
+        const apiResults = response.data.results || {};
+
+        Object.entries(apiResults).forEach(([ticker, data]) => {
+          const userTicker = normalized.find(t => t.ticker === ticker) || chunk.find(t => t.ticker === ticker);
+          mergedResults[ticker] = {
+            ...data,
+            nextEarningsDate: data.nextEarningsDate ? new Date(data.nextEarningsDate) : null,
+            displayName: userTicker?.name || data.name || ticker,
+            history: (data.history || []).map(h => ({
+              ...h,
+              date: h.date ? new Date(h.date) : null,
+              surprise: h.surprisePercent
+            }))
+          };
+        });
+
+        // Small delay between chunks to be nice to the API
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise(r => setTimeout(r, 300));
+      }
+
+      // Fallback for:
+      // 1) Tickers not returned at all by the API
+      // 2) Tickers returned but without a nextEarningsDate
+      const requestedTickers = new Set(normalized.map(t => t.ticker));
+      const receivedTickers = new Set(Object.keys(mergedResults));
+      const missingOrEmpty = [...requestedTickers].filter(t => {
+        if (!receivedTickers.has(t)) return true;
+        const d = mergedResults[t]?.nextEarningsDate;
+        return !d; // no upcoming date found → try client-side strategies
       });
-      
-      const apiResults = response.data.results || {};
-      const results = {};
-      
-      // Convert dates from epoch ms to Date objects and add user-supplied names
-      Object.entries(apiResults).forEach(([ticker, data]) => {
-        const userTicker = normalized.find(t => t.ticker === ticker);
-        results[ticker] = {
-          ...data,
-          nextEarningsDate: data.nextEarningsDate ? new Date(data.nextEarningsDate) : null,
-          displayName: userTicker?.name || data.name || ticker,
-          history: (data.history || []).map(h => ({
-            ...h,
-            date: h.date ? new Date(h.date) : null,
-            surprise: h.surprisePercent
-          }))
-        };
-      });
-      
-      return results;
+
+      for (const ticker of missingOrEmpty) {
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          const single = await this.fetchEarnings(ticker);
+          if (single) {
+            mergedResults[ticker] = single;
+          }
+          // eslint-disable-next-line no-await-in-loop
+          await new Promise(r => setTimeout(r, 250));
+        } catch (e) {
+          // ignore single failure
+        }
+      }
+
+      return mergedResults;
     } catch (error) {
       console.error('Earnings API error:', error.message);
       return {};

@@ -4,6 +4,11 @@
 const CACHE = new Map();
 const CACHE_TTL = 10 * 1000; // 10 seconds cache
 
+// Separate long-lived cache for company profile (sector + description)
+// Profiles rarely change, so we cache them for 6 hours to avoid rate-limiting
+const PROFILE_CACHE = new Map();
+const PROFILE_CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hours
+
 // Convert TradingView ticker to Yahoo Finance format
 const tradingViewToYahoo = (tvTicker) => {
   if (!tvTicker || !tvTicker.includes(':')) return tvTicker;
@@ -169,6 +174,145 @@ const calculateSMA = (prices, period) => {
   return sum / period;
 };
 
+// Fetch short company description + sector from Yahoo Finance
+// Uses a separate 6-hour cache to avoid rate-limiting (profiles rarely change)
+const fetchProfileDescription = async (yahooTicker, { force = false } = {}) => {
+  // Check long-lived profile cache first
+  const cached = PROFILE_CACHE.get(yahooTicker);
+  if (!force && cached && Date.now() - cached.ts < PROFILE_CACHE_TTL) {
+    return cached.data;
+  }
+
+  let sector = '';
+  let description = '';
+  let industry = '';
+
+  // Try assetProfile (v10 quoteSummary) — most reliable for sector + description
+  try {
+    const url = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(yahooTicker)}?modules=assetProfile`;
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'application/json',
+        'Accept-Language': 'en-US,en;q=0.9',
+      }
+    });
+    if (res.ok) {
+      const json = await res.json();
+      const profile = json?.quoteSummary?.result?.[0]?.assetProfile || {};
+      sector = profile.sector || '';
+      industry = profile.industry || '';
+      const summary = profile.longBusinessSummary || '';
+      if (summary) {
+        const first = summary.split(/\.\s+/)[0];
+        description = first.length > 130 ? first.substring(0, 127) + '...' : (first.endsWith('.') ? first : first + '.');
+      }
+    }
+  } catch {}
+
+  // If assetProfile failed or returned empty, try summaryProfile (sometimes present on non-US listings)
+  if (!sector || !description || !industry) {
+    try {
+      const url = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(yahooTicker)}?modules=summaryProfile`;
+      const res = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Accept': 'application/json',
+          'Accept-Language': 'en-US,en;q=0.9',
+        }
+      });
+      if (res.ok) {
+        const json = await res.json();
+        const profile = json?.quoteSummary?.result?.[0]?.summaryProfile || {};
+        sector = sector || profile.sector || '';
+        industry = industry || profile.industry || '';
+        const summary = profile.longBusinessSummary || '';
+        if (!description && summary) {
+          const first = summary.split(/\.\s+/)[0];
+          description = first.length > 130 ? first.substring(0, 127) + '...' : (first.endsWith('.') ? first : first + '.');
+        }
+      }
+    } catch {}
+  }
+
+  // If still missing, try price module to get longName/shortName as a minimal descriptor
+  if (!description) {
+    try {
+      const url = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(yahooTicker)}?modules=price`;
+      const res = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Accept': 'application/json',
+        }
+      });
+      if (res.ok) {
+        const json = await res.json();
+        const price = json?.quoteSummary?.result?.[0]?.price || {};
+        const nm = price.longName || price.shortName || '';
+        if (nm) description = nm;
+      }
+    } catch {}
+  }
+
+  // If still no useful profile and ticker is likely an ETF, try fundProfile
+  if ((!sector || !description) && /(^[A-Z]{1,5}(\.[A-Z]{1,2})?$)/.test(String(yahooTicker))) {
+    try {
+      const fundUrl = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(yahooTicker)}?modules=fundProfile`;
+      const fundRes = await fetch(fundUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Accept': 'application/json',
+        }
+      });
+      if (fundRes.ok) {
+        const fundJson = await fundRes.json();
+        const fp = fundJson?.quoteSummary?.result?.[0]?.fundProfile || {};
+        if (!sector) sector = fp.category || 'ETF';
+        if (!description) {
+          const parts = [];
+          if (fp.category) parts.push(fp.category);
+          if (fp.family) parts.push(fp.family);
+          const line = parts.join(' — ');
+          if (line) description = line;
+        }
+      }
+    } catch {}
+  }
+
+  // Fallback: v7 quote for sector if assetProfile failed
+  if (!sector) {
+    try {
+      const quoteUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(yahooTicker)}`;
+      const quoteRes = await fetch(quoteUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+          'Accept': 'application/json',
+        }
+      });
+      if (quoteRes.ok) {
+        const quoteJson = await quoteRes.json();
+        const quote = quoteJson.quoteResponse?.result?.[0];
+        if (quote) {
+          sector = quote.sector || '';
+          if (!industry) industry = quote.industry || '';
+        }
+      }
+    } catch {}
+  }
+
+  // If still no description, use industry as short descriptor
+  if (!description && industry) description = industry;
+
+  const result = { sector, description };
+
+  // Only cache if we got useful data
+  if (!force && (sector || description)) {
+    PROFILE_CACHE.set(yahooTicker, { data: result, ts: Date.now() });
+  }
+
+  return result;
+};
+
 // Fetch analyst recommendations from Yahoo Finance v7 quote endpoint
 const fetchAnalystData = async (yahooTicker) => {
   try {
@@ -306,7 +450,7 @@ module.exports = async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
   
-  const { ticker, range = '1d', interval = '5m' } = req.query;
+  const { ticker, range = '1d', interval = '5m', forceProfile } = req.query;
   
   if (!ticker) {
     return res.status(400).json({ error: 'Ticker is required' });
@@ -370,9 +514,12 @@ module.exports = async function handler(req, res) {
       : 0;
     const currentVolume = volumes[volumes.length - 1] || 0;
     
-    // Fetch analyst data (don't await - we'll add it if available)
+    // Fetch analyst data + company description concurrently
     const resolvedTicker = result._resolvedTicker || tradingViewToYahoo(ticker);
-    const analystData = await fetchAnalystData(resolvedTicker);
+    const [analystData, profile] = await Promise.all([
+      fetchAnalystData(resolvedTicker),
+      fetchProfileDescription(resolvedTicker, { force: String(forceProfile) === '1' || String(forceProfile).toLowerCase() === 'true' }),
+    ]);
     
     const responseData = {
       ticker: ticker,
@@ -385,6 +532,9 @@ module.exports = async function handler(req, res) {
       marketState: meta.marketState || 'CLOSED',
       timestamp: new Date().toISOString(),
       sparklineData: closes.slice(-30),
+      // New: expose raw timestamps and close series for daily aggregation use-cases
+      timestamps: timestamps.map(ts => ts * 1000),
+      closeSeries: closes,
       growthData: {
         dailyChange: changePercent,
         growth1mo: growth1mo,
@@ -409,6 +559,9 @@ module.exports = async function handler(req, res) {
         average20d: avgVolume,
         ratio: avgVolume > 0 ? currentVolume / avgVolume : 1
       },
+      // Company profile
+      sector: profile?.sector || '',
+      description: profile?.description || '',
       // Analyst recommendations
       analystData: analystData
     };

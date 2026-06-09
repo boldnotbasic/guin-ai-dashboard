@@ -2063,6 +2063,94 @@ db.brandFonts = {
   }
 };
 
+// Investments helpers
+db.investments = {
+  getAll: async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Not authenticated');
+    
+    const { data, error } = await supabase
+      .from('investments')
+      .select('*, investment_links(*)')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    // Map investment_links to links for backwards compatibility
+    return (data || []).map(inv => ({
+      ...inv,
+      links: inv.investment_links || []
+    }));
+  },
+  create: async (investment) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Not authenticated');
+    
+    const { data, error } = await supabase
+      .from('investments')
+      .insert([{ ...investment, user_id: user.id }])
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  },
+  update: async (id, updates) => {
+    const { data, error } = await supabase
+      .from('investments')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  },
+  delete: async (id) => {
+    const { error } = await supabase
+      .from('investments')
+      .delete()
+      .eq('id', id);
+    if (error) throw error;
+  }
+};
+
+// Investment Links helpers
+db.investmentLinks = {
+  getByInvestment: async (investmentId) => {
+    const { data, error } = await supabase
+      .from('investment_links')
+      .select('*')
+      .eq('investment_id', investmentId)
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+    return data || [];
+  },
+  create: async (link) => {
+    const { data, error } = await supabase
+      .from('investment_links')
+      .insert([link])
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  },
+  update: async (id, updates) => {
+    const { data, error } = await supabase
+      .from('investment_links')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  },
+  delete: async (id) => {
+    const { error } = await supabase
+      .from('investment_links')
+      .delete()
+      .eq('id', id);
+    if (error) throw error;
+  }
+};
+
 // Vouchers helpers
 db.vouchers = {
   getAll: async () => {

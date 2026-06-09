@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import OpenAI from 'openai';
 import { MessageSquare, Send, X, Minimize2, Maximize2, Sparkles, Loader2, Mic, MicOff } from 'lucide-react';
 import { db } from '../utils/supabaseClient';
 
@@ -237,54 +237,37 @@ const AIChatbot = ({ onClose, isMinimized, setIsMinimized }) => {
     return null;
   };
 
-  const generateWithFallback = async (genAI, prompt) => {
-    const models = ["gemini-3-flash-preview", "gemini-2.5-flash", "gemini-flash-latest"];
-    let lastError = null;
-
-    for (const modelName of models) {
-      try {
-        console.log(`[v4.0 Chatbot] Attempting generation with model: ${modelName}`);
-        const model = genAI.getGenerativeModel({ model: modelName });
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        console.log(`✅ Chatbot success with model: ${modelName}`);
-        return { text: response.text(), model: modelName };
-      } catch (error) {
-        console.warn(`❌ Chatbot model ${modelName} failed:`, error.message);
-        lastError = error;
-      }
-    }
-    throw lastError;
-  };
-
-  const callGeminiAPI = async (userMessage, conversationHistory) => {
-    const apiKey = localStorage.getItem('gemini_api_key');
+  const callOpenAIAPI = async (userMessage, conversationHistory) => {
+    const apiKey = localStorage.getItem('openai_api_key');
     if (!apiKey) {
-      return 'Ik heb een Gemini API key nodig. Ga naar Guin.AI pagina → API Settings om je key in te stellen.';
+      return 'Ik heb een OpenAI API key nodig. Ga naar Guin.AI pagina → API Settings om je key in te stellen.';
     }
 
     try {
-      const genAI = new GoogleGenerativeAI(apiKey);
-      
-      const prompt = `Je bent een behulpzame AI assistent voor een project management dashboard genaamd Guin.AI. Je helpt gebruikers met:
-- Project en taak management
-- SEO content generatie in het Nederlands
-- Algemene vragen beantwoorden
-- Productiviteit tips
+      const openai = new OpenAI({ apiKey, dangerouslyAllowBrowser: true });
 
-Antwoord altijd in het Nederlands, tenzij anders gevraagd. Wees vriendelijk, professioneel en to-the-point.
+      const messages = [
+        {
+          role: 'system',
+          content: 'Je bent een behulpzame AI assistent voor een project management dashboard genaamd Guin.AI. Je helpt gebruikers met:\n- Project en taak management\n- SEO content generatie in het Nederlands\n- Algemene vragen beantwoorden\n- Productiviteit tips\n\nAntwoord altijd in het Nederlands, tenzij anders gevraagd. Wees vriendelijk, professioneel en to-the-point.'
+        },
+        ...conversationHistory.map(m => ({ role: m.role, content: m.content })),
+        { role: 'user', content: userMessage }
+      ];
 
-Gebruiker vraag: ${userMessage}`;
+      console.log('[Chatbot] Calling OpenAI API...');
+      const response = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: messages,
+        max_tokens: 1000,
+        temperature: 0.7
+      });
 
-      console.log('[v4.0 Chatbot] Generating content with CORRECT model names...');
-      const { text, model } = await generateWithFallback(genAI, prompt);
-      
-      console.log(`✅ Chatbot successfully generated with model: ${model}`);
-      
-      return text;
+      console.log('✅ Chatbot successfully generated with OpenAI');
+      return response.choices[0].message.content;
 
     } catch (error) {
-      console.error('Gemini SDK error (Chatbot):', error);
+      console.error('OpenAI SDK error (Chatbot):', error);
       return `Fout bij het verbinden met de AI: ${error.message}`;
     }
   };
@@ -305,14 +288,14 @@ Gebruiker vraag: ${userMessage}`;
       
       if (commandResult) {
         // It's a command
-        setMessages(prev => [...prev, { 
-          role: 'assistant', 
+        setMessages(prev => [...prev, {
+          role: 'assistant',
           content: commandResult.message,
           isCommand: true
         }]);
       } else {
-        // It's a general question - use Gemini
-        const aiResponse = await callGeminiAPI(userMessage, messages);
+        // It's a general question - use OpenAI
+        const aiResponse = await callOpenAIAPI(userMessage, messages);
         setMessages(prev => [...prev, { role: 'assistant', content: aiResponse }]);
       }
     } catch (error) {
