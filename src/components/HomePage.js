@@ -5,15 +5,19 @@ import {
   MapPin,
   Lightbulb,
   Activity,
-  Star
+  Star,
+  ListTodo,
+  ArrowRight
 } from 'lucide-react';
 import TabQuickLinks from './TabQuickLinks';
+import { db } from '../utils/supabaseClient';
 
 const HomePage = ({ setActiveTab }) => {
   const [stats, setStats] = useState({
     totalProspects: 0,
     totalIdeas: 0
   });
+  const [todoStats, setTodoStats] = useState({ toStart: 0, doing: 0 });
 
   // Get platform directly without state to avoid re-render
   const platform = localStorage.getItem('selected-platform') || 'Privé';
@@ -25,7 +29,24 @@ const HomePage = ({ setActiveTab }) => {
       totalProspects: 0,
       totalIdeas: 0
     });
+
+    // Load 2DO stats
+    loadTodoStats();
   }, []);
+
+  const loadTodoStats = async () => {
+    try {
+      // Load from project tasks (all tasks across all projects)
+      const todos = await db.projectTasks.getAll();
+      if (todos && Array.isArray(todos)) {
+        const toStartCount = todos.filter(t => t.status === 'to_start').length;
+        const inProgressCount = todos.filter(t => t.status === 'in_progress').length;
+        setTodoStats({ toStart: toStartCount, doing: inProgressCount });
+      }
+    } catch (error) {
+      console.error('Error loading todo stats:', error);
+    }
+  };
 
   const quickActions = [
     { 
@@ -55,6 +76,13 @@ const HomePage = ({ setActiveTab }) => {
       description: 'Ideeën & inspiratie', 
       icon: Lightbulb, 
       color: 'bg-gradient-orange-pink' 
+    },
+    {
+      id: '2do',
+      title: '2DO Board',
+      description: 'Taken beheer',
+      icon: ListTodo,
+      color: 'from-indigo-500 to-purple-600'
     }
   ];
 
@@ -105,6 +133,38 @@ const HomePage = ({ setActiveTab }) => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           {quickActions.map((action) => {
             const Icon = action.icon;
+            
+            // Special styling for 2DO card to match PriveHomePage
+            if (action.id === '2do') {
+              return (
+                <div
+                  key={action.id}
+                  onClick={() => setActiveTab(action.id)}
+                  className="gradient-card rounded-xl p-6 hover:scale-105 transition-all cursor-pointer group relative overflow-hidden"
+                >
+                  <div className={`absolute inset-0 bg-gradient-to-br ${action.color} opacity-10 group-hover:opacity-20 transition-opacity`}></div>
+                  <div className="relative z-10">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className={`w-12 h-12 rounded-lg bg-gradient-to-br ${action.color} flex items-center justify-center`}>
+                        <Icon className="w-6 h-6 text-white" />
+                      </div>
+                      <ArrowRight className="w-5 h-5 text-white/40 group-hover:text-white/60 group-hover:translate-x-1 transition-all" />
+                    </div>
+                    <h3 className="text-white font-semibold text-lg mb-1">{action.title}</h3>
+                    <p className="text-white/60 text-sm mb-3">{action.description}</p>
+                    <div className="mt-2">
+                      <div className="text-sm font-medium text-white/80">
+                        {todoStats.toStart}/{todoStats.doing}
+                      </div>
+                      <div className="text-xs text-white/50 mt-0.5">
+                        To Start / Doing
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+            
             return (
               <button
                 key={action.id}

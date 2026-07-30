@@ -18,6 +18,7 @@ import QuizPage from './components/QuizPage';
 import BrandingPage from './components/BrandingPage';
 import BrandingResourcesPage from './components/BrandingResourcesPage';
 import TwoDoPage from './components/TwoDoPage';
+import BijberoepTwoDoPage from './components/BijberoepTwoDoPage';
 import BeleggenPage from './components/BeleggenPage';
 import WaardebonnenPage from './components/WaardebonnenPage';
 import CaveDartsPage from './components/CaveDartsPage';
@@ -2225,6 +2226,11 @@ function App() {
       case 'cavedarts':
         return <CaveDartsPage />;
       case '2do':
+        // Check platform to show correct 2DO page
+        const platform2do = localStorage.getItem('selected-platform') || 'Privé';
+        if (platform2do === 'Bijberoep') {
+          return <BijberoepTwoDoPage />;
+        }
         return <TwoDoPage />;
       case 'beleggen':
         return <BeleggenPage />;
@@ -2301,7 +2307,7 @@ function App() {
           setSidebarOpen={setSidebarOpen}
         />
         <div className="flex-1 flex flex-col overflow-hidden min-h-0">
-          <Header setIsLoggedIn={setIsLoggedIn} setActiveTab={setActiveTab} setShowChatbot={setShowChatbot} setChatbotMinimized={setChatbotMinimized} />
+          <Header setIsLoggedIn={setIsLoggedIn} setActiveTab={setActiveTab} setShowChatbot={setShowChatbot} setChatbotMinimized={setChatbotMinimized} setSidebarOpen={setSidebarOpen} sidebarOpen={sidebarOpen} />
           <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 relative">
             {renderContent()}
           </main>

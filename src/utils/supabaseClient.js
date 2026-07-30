@@ -1324,7 +1324,7 @@ db.stockCounts = {
   }
 };
 
-// 2DO Tickets
+// 2DO Tickets (Privé only - for personal tasks not linked to projects)
 db.todoTickets = {
   getAll: async () => {
     const { data, error } = await supabase
