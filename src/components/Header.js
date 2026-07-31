@@ -3,7 +3,7 @@ import { Bell, Search, LogOut, Database, Sparkles, User, Menu } from 'lucide-rea
 import { supabase, db, profiles } from '../utils/supabaseClient';
 import TogglButton from './TogglButton';
 
-const Header = ({ setIsLoggedIn, setActiveTab, setShowChatbot, setChatbotMinimized }) => {
+const Header = ({ setIsLoggedIn, setActiveTab, setShowChatbot, setChatbotMinimized, setSidebarOpen, sidebarOpen }) => {
   const [selectedPlatform, setSelectedPlatform] = useState('Privé');
   const [dbStatus, setDbStatus] = useState('checking'); // 'checking' | 'ok' | 'error'
   const [userProfile, setUserProfile] = useState(null);
@@ -352,6 +352,7 @@ const Header = ({ setIsLoggedIn, setActiveTab, setShowChatbot, setChatbotMinimiz
         <div className="flex items-center gap-2">
           {/* Hamburger Menu - Left side */}
           <button
+            onClick={() => setSidebarOpen && setSidebarOpen(!sidebarOpen)}
             className="p-2.5 rounded-lg border border-white/20 bg-white/10 hover:bg-white/20 transition-colors flex-shrink-0 flex items-center justify-center"
             title="Menu"
           >

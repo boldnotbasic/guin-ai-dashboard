@@ -20,6 +20,7 @@ import BrandingResourcesPage from './components/BrandingResourcesPage';
 import TwoDoPage from './components/TwoDoPage';
 import BijberoepTwoDoPage from './components/BijberoepTwoDoPage';
 import BeleggenPage from './components/BeleggenPage';
+import PokeCenterPage from './components/PokeCenterPage';
 import WaardebonnenPage from './components/WaardebonnenPage';
 import CaveDartsPage from './components/CaveDartsPage';
 import AutoPage from './components/AutoPage';
@@ -2234,6 +2235,8 @@ function App() {
         return <TwoDoPage />;
       case 'beleggen':
         return <BeleggenPage />;
+      case 'poke-center':
+        return <PokeCenterPage />;
       case 'waardebonnen':
         return <WaardebonnenPage />;
       case 'reizen':

@@ -2195,3 +2195,68 @@ db.vouchers = {
     if (error) throw error;
   }
 };
+
+// Pokémon Collection
+db.pokemonCollection = {
+  getAll: async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Not authenticated');
+    
+    const { data, error } = await supabase
+      .from('pokemon_collection')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return data || [];
+  },
+  create: async (item) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Not authenticated');
+    
+    const { data, error } = await supabase
+      .from('pokemon_collection')
+      .insert([{ ...item, user_id: user.id }])
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  },
+  update: async (id, updates) => {
+    const { data, error } = await supabase
+      .from('pokemon_collection')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  },
+  delete: async (id) => {
+    const { error } = await supabase
+      .from('pokemon_collection')
+      .delete()
+      .eq('id', id);
+    if (error) throw error;
+  },
+  uploadImage: async (file, itemId) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Not authenticated');
+    
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${user.id}/${itemId || Date.now()}.${fileExt}`;
+    const filePath = `pokemon/${fileName}`;
+    
+    const { error: uploadError } = await supabase.storage
+      .from('images')
+      .upload(filePath, file, { upsert: true });
+    
+    if (uploadError) throw uploadError;
+    
+    const { data: { publicUrl } } = supabase.storage
+      .from('images')
+      .getPublicUrl(filePath);
+    
+    return publicUrl;
+  }
+};

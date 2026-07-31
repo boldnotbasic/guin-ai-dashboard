@@ -20,6 +20,8 @@ import {
 } from 'lucide-react';
 import ProjectEmailFilters from './ProjectEmailFilters';
 import ProjectEmailList from './ProjectEmailList';
+import ReactQuill from 'react-quill';
+import 'react-quill/dist/quill.snow.css';
 
 const ProjectDetailPage = ({ projectId, setActiveTab, setSelectedProject }) => {
   const [project, setProject] = useState(null);
@@ -44,7 +46,7 @@ const ProjectDetailPage = ({ projectId, setActiveTab, setSelectedProject }) => {
   const [showAgenda, setShowAgenda] = useState(true);
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
-  const [modalTask, setModalTask] = useState({ title: '', due_date: '', status: 'to_start', task_type: 'task' });
+  const [modalTask, setModalTask] = useState({ title: '', due_date: '', status: 'to_start', task_type: 'task', notes: '' });
   const [copyToast, setCopyToast] = useState('');
   const [projectColors, setProjectColors] = useState([]);
   const [projectFonts, setProjectFonts] = useState([]);
@@ -561,7 +563,7 @@ const ProjectDetailPage = ({ projectId, setActiveTab, setSelectedProject }) => {
                 onClick={() => {
                   if (!date) return;
                   setEditingTask(null);
-                  setModalTask({ title: '', due_date: formatLocalDate(date), status: 'to_start', task_type: 'task' });
+                  setModalTask({ title: '', due_date: formatLocalDate(date), status: 'to_start', task_type: 'task', notes: '' });
                   setShowTaskModal(true);
                 }}
               >
@@ -584,7 +586,8 @@ const ProjectDetailPage = ({ projectId, setActiveTab, setSelectedProject }) => {
                                 title: task.title || '',
                                 due_date: task.due_date || '',
                                 status: task.status || 'to_start',
-                                task_type: task.task_type || 'task'
+                                task_type: task.task_type || 'task',
+                                notes: task.notes || ''
                               });
                               setShowTaskModal(true);
                             }}
@@ -622,7 +625,8 @@ const ProjectDetailPage = ({ projectId, setActiveTab, setSelectedProject }) => {
           title: modalTask.title.trim(),
           due_date: modalTask.due_date || null,
           status: modalTask.status,
-          task_type: modalTask.task_type || 'task'
+          task_type: modalTask.task_type || 'task',
+          notes: modalTask.notes || ''
         };
         await db.projectTasks.update(editingTask.id, updates);
         setTasks(tasks.map(t => (t.id === editingTask.id ? { ...t, ...updates } : t)));
@@ -633,7 +637,8 @@ const ProjectDetailPage = ({ projectId, setActiveTab, setSelectedProject }) => {
           status: modalTask.status || 'to_start',
           position: maxPosition + 1,
           due_date: modalTask.due_date || null,
-          task_type: modalTask.task_type || 'task'
+          task_type: modalTask.task_type || 'task',
+          notes: modalTask.notes || ''
         };
         
         // Only add project_id if we have a projectId (not "No Client")
@@ -646,7 +651,7 @@ const ProjectDetailPage = ({ projectId, setActiveTab, setSelectedProject }) => {
       }
       setShowTaskModal(false);
       setEditingTask(null);
-      setModalTask({ title: '', due_date: '', status: 'to_start', task_type: 'task' });
+      setModalTask({ title: '', due_date: '', status: 'to_start', task_type: 'task', notes: '' });
     } catch (e) {
       console.error('Error saving task from modal:', e);
       alert('Fout bij opslaan taak');
@@ -787,6 +792,28 @@ const ProjectDetailPage = ({ projectId, setActiveTab, setSelectedProject }) => {
                     <span>Social Post</span>
                   </button>
                 </div>
+              </div>
+            </div>
+
+            {/* Notes - Rich Text Editor */}
+            <div className="mt-4">
+              <label className="block text-white/70 text-sm mb-2">Notes</label>
+              <div className="bg-white rounded-lg overflow-hidden">
+                <ReactQuill
+                  theme="snow"
+                  value={modalTask.notes || ''}
+                  onChange={(content) => setModalTask({ ...modalTask, notes: content })}
+                  modules={{
+                    toolbar: [
+                      ['bold', 'italic', 'underline'],
+                      ['link'],
+                      [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                      ['clean']
+                    ]
+                  }}
+                  placeholder="Voeg notities toe met opmaak..."
+                  style={{ minHeight: '150px' }}
+                />
               </div>
             </div>
 
@@ -1033,6 +1060,12 @@ const ProjectDetailPage = ({ projectId, setActiveTab, setSelectedProject }) => {
                           {task.description && (
                             <p className="text-white/60 text-sm mb-2">{task.description}</p>
                           )}
+                          {task.notes && (
+                            <div 
+                              className="text-white/60 text-sm mb-2 prose prose-sm prose-invert max-w-none"
+                              dangerouslySetInnerHTML={{ __html: task.notes }}
+                            />
+                          )}
                           {task.due_date && (
                             <p className="text-white/40 text-xs">
                               📅 {new Date(task.due_date).toLocaleDateString('nl-NL')}
@@ -1041,7 +1074,28 @@ const ProjectDetailPage = ({ projectId, setActiveTab, setSelectedProject }) => {
                         </div>
                         <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button
-                            onClick={() => deleteTask(task.id)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingTask(task);
+                              setModalTask({
+                                title: task.title || '',
+                                due_date: task.due_date || '',
+                                status: task.status || 'to_start',
+                                task_type: task.task_type || 'task',
+                                notes: task.notes || ''
+                              });
+                              setShowTaskModal(true);
+                            }}
+                            className="p-1 text-blue-400 hover:text-blue-300"
+                            title="Bewerk taak & notes"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteTask(task.id);
+                            }}
                             className="p-1 text-red-400 hover:text-red-300"
                           >
                             <Trash2 className="w-4 h-4" />
