@@ -11,7 +11,7 @@ module.exports = function(app) {
   // Dynamically load and serve API routes
   app.all('/api/:name', async (req, res) => {
     const handlerName = req.params.name;
-    const handlerPath = path.resolve(__dirname, '..', 'api', `${handlerName}.js`);
+    const handlerPath = path.resolve(__dirname, '..', 'api-handlers', `${handlerName}.js`);
     
     try {
       // Clear require cache for hot reloading
