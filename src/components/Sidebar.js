@@ -269,6 +269,7 @@ const Sidebar = ({ activeTab, setActiveTab, sidebarOpen = false, setSidebarOpen 
       { id: 'cavedarts', label: 'Cave Darts' },
       { id: '2do', label: '2DO' },
       { id: 'beleggen', label: 'Beleggen' },
+      { id: 'poke-center', label: 'Poké Center' },
       { id: 'waardebonnen', label: 'Waardebonnen' },
       { id: 'reizen', label: 'Reizen' },
       { id: 'wandelingen', label: 'Wandelingen' },
